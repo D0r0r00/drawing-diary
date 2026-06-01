@@ -1,4 +1,4 @@
-# AI Server (박지영 담당)
+# AI Server
 
 ## 환경 설정
 ```bash
