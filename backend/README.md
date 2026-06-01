@@ -1,4 +1,4 @@
-# Backend (최민석 담당)
+# Backend
 
 ## 프로젝트 초기화
 start.spring.io 에서 생성:
