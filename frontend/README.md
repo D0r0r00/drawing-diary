@@ -1,4 +1,4 @@
-# Frontend (박연우 담당)
+# Frontend
 
 ## 프로젝트 초기화 (처음 한 번만)
 ```bash
