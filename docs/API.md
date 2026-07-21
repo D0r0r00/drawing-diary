@@ -2,10 +2,9 @@
 
 ## 인증
 로그인과 회원가입을 제외한 백엔드 API는 Header에 JWT 포함 필요
-```
 Authorization: Bearer {accessToken}
 실시간 협업 연결 시에도 JWT 인증 필요
-```
+
 
 ## Auth
 ### 회원가입
@@ -160,19 +159,14 @@ Authorization: Bearer {accessToken}
 - Response: { message }
 
 ## AI
-### 키워드 추출
-- POST /ai/extract-keywords 
-- Body: { text }
-- Response: { keywords: [] }
-
 ### 선화 가이드 생성
 - POST /ai/generate-guide
-- Body: { text, keywords }
+- Body: { text }
 - Response: { imageBase64, promptUsed }
 
 ### 일기 점수 산정
 - POST /ai/score-diary
-- Body: { diaryId, text, imageBase64, colorCount }
+- Body: { diaryId, text, imageBase64 }
 - Response: { totalScore, themeScore, relationScore, colorScore, feedback }
 
 ### AI 점수 저장
