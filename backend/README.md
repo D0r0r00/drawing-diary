@@ -6,8 +6,8 @@
 최민석
 
 ## 기술 스택
-- Java 17
-- Spring Boot 3.x
+- Java 25
+- Spring Boot 3.5
 - Spring Security + JWT
 - Spring Data JPA
 - PostgreSQL
