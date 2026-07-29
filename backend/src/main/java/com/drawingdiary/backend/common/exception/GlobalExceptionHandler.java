@@ -2,6 +2,7 @@ package com.drawingdiary.backend.common.exception;
 
 import com.drawingdiary.backend.domain.auth.exception.DuplicateEmailException;
 import com.drawingdiary.backend.domain.auth.exception.InvalidCredentialsException;
+import com.drawingdiary.backend.domain.user.exception.DuplicateNicknameException;
 import com.drawingdiary.backend.domain.user.exception.UserNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -15,6 +16,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DuplicateEmailException.class)
     public ResponseEntity<ErrorResponse> handleDuplicateEmail(DuplicateEmailException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(DuplicateNicknameException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateNickname(DuplicateNicknameException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(e.getMessage()));
     }
 

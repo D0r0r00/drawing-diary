@@ -4,6 +4,7 @@ import com.drawingdiary.backend.domain.user.dto.UserResponse;
 import com.drawingdiary.backend.domain.user.dto.UserSearchResponse;
 import com.drawingdiary.backend.domain.user.dto.UserUpdateRequest;
 import com.drawingdiary.backend.domain.user.dto.UserUpdateResponse;
+import com.drawingdiary.backend.domain.user.exception.DuplicateNicknameException;
 import com.drawingdiary.backend.domain.user.exception.UserNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,9 @@ public class UserService {
     @Transactional
     public UserUpdateResponse updateMe(Long userId, UserUpdateRequest request) {
         User user = getUserOrThrow(userId);
+        if (!user.getNickname().equals(request.nickname()) && userRepository.existsByNickname(request.nickname())) {
+            throw new DuplicateNicknameException(request.nickname());
+        }
         user.updateProfile(request.nickname(), request.profileImageUrl());
         return new UserUpdateResponse(user.getId(), user.getNickname(), user.getProfileImageUrl());
     }

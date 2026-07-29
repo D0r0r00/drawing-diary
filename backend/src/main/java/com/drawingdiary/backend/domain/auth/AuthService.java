@@ -8,6 +8,7 @@ import com.drawingdiary.backend.domain.auth.exception.DuplicateEmailException;
 import com.drawingdiary.backend.domain.auth.exception.InvalidCredentialsException;
 import com.drawingdiary.backend.domain.user.User;
 import com.drawingdiary.backend.domain.user.UserRepository;
+import com.drawingdiary.backend.domain.user.exception.DuplicateNicknameException;
 import com.drawingdiary.backend.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -26,6 +27,10 @@ public class AuthService {
     public SignupResponse signup(SignupRequest request) {
         if (userRepository.existsByEmail(request.email())) {
             throw new DuplicateEmailException(request.email());
+        }
+
+        if (userRepository.existsByNickname(request.nickname())) {
+            throw new DuplicateNicknameException(request.nickname());
         }
 
         User user = User.builder()
