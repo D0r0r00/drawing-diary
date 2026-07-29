@@ -1,0 +1,4 @@
+# 이 파일을 복사해서 application-local.properties 로 저장하세요.
+# application-local.properties 는 .gitignore에 등록되어 있어 git에 커밋되지 않습니다.
+DB_PASSWORD=실제_DB_비밀번호_입력
+JWT_SECRET=최소_32자_이상의_랜덤_문자열_입력

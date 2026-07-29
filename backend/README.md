@@ -1,16 +1,24 @@
-# Backend
+# drawing-diary-backend
 
-## 프로젝트 초기화
-start.spring.io 에서 생성:
-- Project: Gradle - Kotlin
-- Spring Boot: 3.x
-- Dependencies: Spring Web, Spring Security, Spring Data JPA, PostgreSQL Driver, Lombok
+그림 일기 서비스 백엔드 (Spring Boot)
 
-생성된 파일을 이 폴더에 압축 해제 후 GitHub push
+## 담당
+최민석
 
-## 실행 방법
+## 기술 스택
+- Java 17
+- Spring Boot 3.x
+- Spring Security + JWT
+- Spring Data JPA
+- PostgreSQL
+
+## 시작하기
 ```bash
-./gradlew bootRun
+# 1. infra 폴더에서 DB 먼저 실행
+cd infra && docker-compose up -d
+
+# 2. 루트로 돌아와서 Spring Boot 실행
+cd .. && ./gradlew bootRun
 ```
 → http://localhost:8080
 
