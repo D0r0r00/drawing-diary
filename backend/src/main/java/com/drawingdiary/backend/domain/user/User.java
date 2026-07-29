@@ -10,6 +10,7 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
@@ -47,6 +48,7 @@ public class User {
     private LocalDateTime createdAt;
 
     @UpdateTimestamp
+    @ColumnDefault("CURRENT_TIMESTAMP")
     @Column(nullable = false)
     private LocalDateTime updatedAt;
 
