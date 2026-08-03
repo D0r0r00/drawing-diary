@@ -16,6 +16,9 @@ spring:
       hibernate:
         format_sql: true
     open-in-view: false
+  redis:
+    host: ${REDISHOST:localhost}
+    port: ${REDISPORT:6379}
 
 server:
   port: 8080
