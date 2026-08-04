@@ -2,6 +2,8 @@ package com.drawingdiary.backend.common.exception;
 
 import com.drawingdiary.backend.domain.auth.exception.DuplicateEmailException;
 import com.drawingdiary.backend.domain.auth.exception.InvalidCredentialsException;
+import com.drawingdiary.backend.domain.follow.exception.AlreadyFollowingException;
+import com.drawingdiary.backend.domain.follow.exception.SelfFollowException;
 import com.drawingdiary.backend.domain.user.exception.DuplicateNicknameException;
 import com.drawingdiary.backend.domain.user.exception.UserNotFoundException;
 import org.springframework.http.HttpStatus;
@@ -32,6 +34,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(UserNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(AlreadyFollowingException.class)
+    public ResponseEntity<ErrorResponse> handleAlreadyFollowing(AlreadyFollowingException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(SelfFollowException.class)
+    public ResponseEntity<ErrorResponse> handleSelfFollow(SelfFollowException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(e.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
