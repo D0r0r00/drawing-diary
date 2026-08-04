@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,6 +36,12 @@ public class UserController {
             @Valid @RequestBody UserUpdateRequest request
     ) {
         return ResponseEntity.ok(userService.updateMe(currentUserId(authentication), request));
+    }
+
+    @DeleteMapping("/me")
+    public ResponseEntity<Void> deleteMe(Authentication authentication) {
+        userService.deleteMe(currentUserId(authentication));
+        return ResponseEntity.ok().build();
     }
 
     @GetMapping("/search")

@@ -1,2 +1,3 @@
 org.springframework.boot.env.EnvironmentPostProcessor=\
-com.drawingdiary.backend.config.DatabaseUrlEnvironmentPostProcessor
+com.drawingdiary.backend.config.DatabaseUrlEnvironmentPostProcessor,\
+com.drawingdiary.backend.config.RedisUrlEnvironmentPostProcessor

@@ -2,6 +2,7 @@ package com.drawingdiary.backend.domain.auth;
 
 import com.drawingdiary.backend.domain.auth.dto.LoginRequest;
 import com.drawingdiary.backend.domain.auth.dto.LoginResponse;
+import com.drawingdiary.backend.domain.auth.dto.LogoutRequest;
 import com.drawingdiary.backend.domain.auth.dto.SignupRequest;
 import com.drawingdiary.backend.domain.auth.dto.SignupResponse;
 import jakarta.validation.Valid;
@@ -28,5 +29,11 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(authService.login(request));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@Valid @RequestBody LogoutRequest request) {
+        authService.logout(request);
+        return ResponseEntity.ok().build();
     }
 }

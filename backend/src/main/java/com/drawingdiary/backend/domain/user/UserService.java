@@ -6,6 +6,7 @@ import com.drawingdiary.backend.domain.user.dto.UserUpdateRequest;
 import com.drawingdiary.backend.domain.user.dto.UserUpdateResponse;
 import com.drawingdiary.backend.domain.user.exception.DuplicateNicknameException;
 import com.drawingdiary.backend.domain.user.exception.UserNotFoundException;
+import com.drawingdiary.backend.security.RefreshTokenStore;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +19,7 @@ import java.util.List;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final RefreshTokenStore refreshTokenStore;
 
     @Transactional(readOnly = true)
     public UserResponse getMe(Long userId) {
@@ -33,6 +35,18 @@ public class UserService {
         }
         user.updateProfile(request.nickname(), request.profileImageUrl());
         return new UserUpdateResponse(user.getId(), user.getNickname(), user.getProfileImageUrl());
+    }
+
+    /**
+     * Soft delete: @SQLDelete on the entity turns this into an UPDATE that sets
+     * deleted_at, and @SQLRestriction hides the row from later queries. The
+     * refresh token is dropped so the deleted account cannot mint new sessions.
+     */
+    @Transactional
+    public void deleteMe(Long userId) {
+        User user = getUserOrThrow(userId);
+        userRepository.delete(user);
+        refreshTokenStore.delete(userId);
     }
 
     @Transactional(readOnly = true)
