@@ -93,6 +93,22 @@ public class Diary {
         this.content = content;
     }
 
+    /**
+     * 부분 수정. null인 인자는 "바꾸지 않겠다"는 뜻이므로 기존 값을 유지한다.
+     * 셋 다 null이면 아무것도 바뀌지 않고, 따라서 updatedAt도 갱신되지 않는다.
+     */
+    public void applyUpdate(String title, String content, Visibility visibility) {
+        if (title != null) {
+            this.title = title;
+        }
+        if (content != null) {
+            this.content = content;
+        }
+        if (visibility != null) {
+            this.visibility = visibility;
+        }
+    }
+
     public void updateCanvasData(byte[] canvasData) {
         this.canvasData = canvasData;
     }

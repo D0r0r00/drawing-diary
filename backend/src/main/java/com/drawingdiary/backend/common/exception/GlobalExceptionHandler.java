@@ -3,6 +3,9 @@ package com.drawingdiary.backend.common.exception;
 import com.drawingdiary.backend.domain.auth.exception.DuplicateEmailException;
 import com.drawingdiary.backend.domain.auth.exception.InvalidCredentialsException;
 import com.drawingdiary.backend.domain.category.exception.CategoryNotFoundException;
+import com.drawingdiary.backend.domain.diary.exception.DiaryAccessDeniedException;
+import com.drawingdiary.backend.domain.diary.exception.DiaryNotFoundException;
+import com.drawingdiary.backend.domain.diary.exception.NotDiaryCollaboratorException;
 import com.drawingdiary.backend.domain.follow.exception.AlreadyFollowingException;
 import com.drawingdiary.backend.domain.follow.exception.SelfFollowException;
 import com.drawingdiary.backend.domain.room.exception.NotRoomMemberException;
@@ -89,6 +92,21 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(RoomAlreadyFinishedException.class)
     public ResponseEntity<ErrorResponse> handleRoomAlreadyFinished(RoomAlreadyFinishedException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(DiaryNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleDiaryNotFound(DiaryNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(DiaryAccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleDiaryAccessDenied(DiaryAccessDeniedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(NotDiaryCollaboratorException.class)
+    public ResponseEntity<ErrorResponse> handleNotDiaryCollaborator(NotDiaryCollaboratorException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(e.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
