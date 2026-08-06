@@ -78,12 +78,13 @@ public class Diary {
 
     @Builder
     public Diary(DrawingRoom room, Category category, Theme theme, String title, String content,
-                 Visibility visibility) {
+                 String finalImgUrl, Visibility visibility) {
         this.room = room;
         this.category = category;
         this.theme = theme;
         this.title = title;
         this.content = content;
+        this.finalImgUrl = finalImgUrl;
         this.visibility = visibility;
     }
 

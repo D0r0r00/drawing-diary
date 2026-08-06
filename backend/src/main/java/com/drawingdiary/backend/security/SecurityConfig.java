@@ -33,6 +33,11 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()
+                        // 스프링이 에러 응답을 만들 때 /error로 다시 디스패치하는데, 이 내부
+                        // 디스패치는 인증 정보를 들고 오지 않는다. /error를 막아두면 원래
+                        // 상태 코드가 무엇이었든 그 재디스패치가 먼저 거부당해서, 잘못된 JSON
+                        // 같은 400이 클라이언트에는 403으로 나가버린다.
+                        .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider), UsernamePasswordAuthenticationFilter.class);
