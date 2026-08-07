@@ -3,6 +3,8 @@ package com.drawingdiary.backend.common.exception;
 import com.drawingdiary.backend.domain.auth.exception.DuplicateEmailException;
 import com.drawingdiary.backend.domain.auth.exception.InvalidCredentialsException;
 import com.drawingdiary.backend.domain.category.exception.CategoryNotFoundException;
+import com.drawingdiary.backend.domain.comment.exception.CommentNotFoundException;
+import com.drawingdiary.backend.domain.comment.exception.NotCommentAuthorException;
 import com.drawingdiary.backend.domain.diary.exception.DiaryAccessDeniedException;
 import com.drawingdiary.backend.domain.diary.exception.DiaryNotFoundException;
 import com.drawingdiary.backend.domain.diary.exception.NotDiaryCollaboratorException;
@@ -106,6 +108,16 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(NotDiaryCollaboratorException.class)
     public ResponseEntity<ErrorResponse> handleNotDiaryCollaborator(NotDiaryCollaboratorException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(CommentNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleCommentNotFound(CommentNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(NotCommentAuthorException.class)
+    public ResponseEntity<ErrorResponse> handleNotCommentAuthor(NotCommentAuthorException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(e.getMessage()));
     }
 

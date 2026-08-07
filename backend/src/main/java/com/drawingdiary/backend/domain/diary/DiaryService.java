@@ -79,11 +79,7 @@ public class DiaryService {
 
     @Transactional(readOnly = true)
     public DiaryDetailResponse find(Long userId, Long diaryId) {
-        Diary diary = getDiaryOrThrow(diaryId);
-
-        if (!canRead(diary, userId)) {
-            throw new DiaryAccessDeniedException(diaryId);
-        }
+        Diary diary = getReadableDiaryOrThrow(userId, diaryId);
 
         return new DiaryDetailResponse(
                 diary.getId(),
@@ -127,6 +123,26 @@ public class DiaryService {
         diaryRepository.delete(diary);
 
         return new DiaryDeleteResponse("일기가 삭제되었습니다");
+    }
+
+    /**
+     * 댓글·좋아요처럼 "일기를 볼 수 있는 사람만" 허용해야 하는 다른 도메인이 같은 판정을 쓰도록
+     * 열어둔 진입점. 조회 권한 규칙이 한 곳(canRead)에만 있어야 일기는 안 보이는데 댓글은 보이는
+     * 식의 어긋남이 생기지 않는다.
+     *
+     * readOnly는 이 메서드를 단독 호출할 때만 의미가 있고, 쓰기 트랜잭션(댓글 작성 등)에서
+     * 호출하면 그 트랜잭션에 합류하며 무시된다. 그래서 반환된 Diary는 호출자와 같은 영속성
+     * 컨텍스트에 있는 관리 상태 엔티티다.
+     */
+    @Transactional(readOnly = true)
+    public Diary getReadableDiaryOrThrow(Long userId, Long diaryId) {
+        Diary diary = getDiaryOrThrow(diaryId);
+
+        if (!canRead(diary, userId)) {
+            throw new DiaryAccessDeniedException(diaryId);
+        }
+
+        return diary;
     }
 
     /**
