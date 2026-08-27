@@ -10,6 +10,8 @@ import com.drawingdiary.backend.domain.diary.exception.DiaryNotFoundException;
 import com.drawingdiary.backend.domain.diary.exception.NotDiaryCollaboratorException;
 import com.drawingdiary.backend.domain.follow.exception.AlreadyFollowingException;
 import com.drawingdiary.backend.domain.follow.exception.SelfFollowException;
+import com.drawingdiary.backend.domain.notification.exception.NotNotificationReceiverException;
+import com.drawingdiary.backend.domain.notification.exception.NotificationNotFoundException;
 import com.drawingdiary.backend.domain.room.exception.NotRoomMemberException;
 import com.drawingdiary.backend.domain.room.exception.NotRoomOwnerException;
 import com.drawingdiary.backend.domain.room.exception.OwnerCannotLeaveRoomException;
@@ -118,6 +120,16 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(NotCommentAuthorException.class)
     public ResponseEntity<ErrorResponse> handleNotCommentAuthor(NotCommentAuthorException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(NotificationNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNotificationNotFound(NotificationNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(NotNotificationReceiverException.class)
+    public ResponseEntity<ErrorResponse> handleNotNotificationReceiver(NotNotificationReceiverException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(e.getMessage()));
     }
 

@@ -8,6 +8,8 @@ import com.drawingdiary.backend.domain.comment.exception.CommentNotFoundExceptio
 import com.drawingdiary.backend.domain.comment.exception.NotCommentAuthorException;
 import com.drawingdiary.backend.domain.diary.Diary;
 import com.drawingdiary.backend.domain.diary.DiaryService;
+import com.drawingdiary.backend.domain.notification.NotificationService;
+import com.drawingdiary.backend.domain.notification.NotificationType;
 import com.drawingdiary.backend.domain.user.User;
 import com.drawingdiary.backend.domain.user.UserRepository;
 import com.drawingdiary.backend.domain.user.exception.UserNotFoundException;
@@ -24,6 +26,7 @@ public class CommentService {
     private final CommentRepository commentRepository;
     private final UserRepository userRepository;
     private final DiaryService diaryService;
+    private final NotificationService notificationService;
 
     /**
      * 일기를 볼 수 없는 사람은 댓글도 볼 수 없다 — 권한 판정은 DiaryService에 맡긴다.
@@ -54,6 +57,10 @@ public class CommentService {
                 .user(user)
                 .content(request.content())
                 .build());
+
+        // 받는 사람은 일기 작성자(= 방장). 본인 일기에 본인이 단 댓글이면 notify가 걸러낸다.
+        notificationService.notify(
+                diaryService.findAuthorId(diaryId), userId, NotificationType.COMMENT, diaryId);
 
         return new CommentCreateResponse(comment.getId(), comment.getContent(), comment.getCreatedAt());
     }

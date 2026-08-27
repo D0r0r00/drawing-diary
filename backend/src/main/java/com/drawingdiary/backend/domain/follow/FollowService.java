@@ -3,6 +3,8 @@ package com.drawingdiary.backend.domain.follow;
 import com.drawingdiary.backend.domain.follow.dto.FollowUserResponse;
 import com.drawingdiary.backend.domain.follow.exception.AlreadyFollowingException;
 import com.drawingdiary.backend.domain.follow.exception.SelfFollowException;
+import com.drawingdiary.backend.domain.notification.NotificationService;
+import com.drawingdiary.backend.domain.notification.NotificationType;
 import com.drawingdiary.backend.domain.user.User;
 import com.drawingdiary.backend.domain.user.UserRepository;
 import com.drawingdiary.backend.domain.user.exception.UserNotFoundException;
@@ -19,6 +21,7 @@ public class FollowService {
 
     private final FollowRepository followRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     /**
      * The self-follow guard runs before any lookup so the CHECK constraint on
@@ -49,6 +52,10 @@ public class FollowService {
         } catch (DataIntegrityViolationException e) {
             throw new AlreadyFollowingException(followingId);
         }
+
+        // 이미 팔로우 중이면 위에서 409로 끝나므로, 알림은 관계가 새로 생긴 순간에만 남는다.
+        // 언팔로우 후 재팔로우는 새 관계라 알림이 다시 간다.
+        notificationService.notify(followingId, followerId, NotificationType.FOLLOW, null);
     }
 
     /**

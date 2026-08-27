@@ -7,6 +7,8 @@ import com.drawingdiary.backend.domain.diary.dto.DiaryDetailResponse;
 import com.drawingdiary.backend.domain.diary.dto.DiaryListResponse;
 import com.drawingdiary.backend.domain.diary.dto.DiaryUpdateRequest;
 import com.drawingdiary.backend.domain.diary.dto.DiaryUpdateResponse;
+import com.drawingdiary.backend.domain.diary.dto.FeedItemResponse;
+import com.drawingdiary.backend.domain.diary.dto.FeedUserResponse;
 import com.drawingdiary.backend.domain.diary.dto.MyDiaryResponse;
 import com.drawingdiary.backend.domain.diary.exception.DiaryAccessDeniedException;
 import com.drawingdiary.backend.domain.diary.exception.DiaryNotFoundException;
@@ -16,6 +18,8 @@ import com.drawingdiary.backend.domain.like.LikeRepository;
 import com.drawingdiary.backend.domain.tag.DiaryTagRepository;
 import com.drawingdiary.backend.domain.user.User;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,12 +41,29 @@ public class DiaryService {
     private final DiaryTagRepository diaryTagRepository;
 
     /**
+     * 첫 페이지는 "가장 큰 id보다 작은 것"이므로 커서 없이 들어온 요청에 이 값을 쓴다.
+     */
+    private static final long FIRST_PAGE_CURSOR = Long.MAX_VALUE;
+
+    private static final int DEFAULT_LIMIT = 10;
+
+    /**
+     * limit을 그대로 믿으면 한 번의 요청으로 테이블 전체를 긁어갈 수 있어 상한을 둔다.
+     */
+    private static final int MAX_LIMIT = 50;
+
+    /**
      * 둘러보기용 목록이라 PUBLIC만 내려간다. 작성자는 일기별로 다시 조회하지 않고
      * 협업자를 한 번에 가져와 메모리에서 묶는다(총 2쿼리).
+     *
+     * @deprecated /api/explore로 대체됐다. 페이지네이션이 없어 일기가 늘어나면 응답이 계속
+     * 커지므로 새 화면에서는 쓰지 말 것. 이미 붙어 있는 프론트를 깨지 않으려고 남겨둔다.
      */
+    @Deprecated
     @Transactional(readOnly = true)
     public List<DiaryListResponse> findAll() {
-        List<Diary> diaries = diaryRepository.findByVisibilityOrderByIdDesc(Visibility.PUBLIC);
+        List<Diary> diaries = diaryRepository.findByVisibilityBefore(
+                Visibility.PUBLIC, FIRST_PAGE_CURSOR, Pageable.unpaged());
         Map<Long, User> authors = findAuthors(diaries.stream().map(Diary::getId).toList());
 
         return diaries.stream()
@@ -59,6 +80,38 @@ public class DiaryService {
                     );
                 })
                 .toList();
+    }
+
+    /**
+     * 탐색 피드 — 팔로우 여부와 무관하게 PUBLIC 전체를 최신순으로. deprecated된 findAll과
+     * 같은 조회를 쓰고 페이지네이션만 얹은 것이라 두 경로의 결과가 항상 일치한다.
+     */
+    @Transactional(readOnly = true)
+    public List<FeedItemResponse> findExplore(Long cursor, int limit) {
+        return toFeedItems(diaryRepository.findByVisibilityBefore(
+                Visibility.PUBLIC, cursorOrFirstPage(cursor), PageRequest.ofSize(pageSize(limit))));
+    }
+
+    /**
+     * 팔로잉 피드 — 내가 팔로우하는 사람이 작성한 일기만. 팔로우는 단방향이고 자기 자신은
+     * 팔로우할 수 없으므로 내 일기는 여기 나오지 않는다(내 일기는 /api/diaries/my).
+     *
+     * 공개 범위 판정은 DiaryRepository.findFeedByAuthorIds가 SQL로 한 번에 처리한다.
+     * 일기마다 canRead를 부르면 팔로우·협업자 확인이 건수만큼 반복될 자리다.
+     */
+    @Transactional(readOnly = true)
+    public List<FeedItemResponse> findFeed(Long userId, Long cursor, int limit) {
+        List<Long> authorIds = followRepository.findFollowingsByFollowerId(userId).stream()
+                .map(User::getId)
+                .toList();
+
+        // 빈 IN 절은 DB마다 처리가 갈리는데, 어차피 결과가 없는 게 확실하므로 쿼리 자체를 건너뛴다.
+        if (authorIds.isEmpty()) {
+            return List.of();
+        }
+
+        return toFeedItems(diaryRepository.findFeedByAuthorIds(
+                userId, authorIds, cursorOrFirstPage(cursor), PageRequest.ofSize(pageSize(limit))));
     }
 
     /**
@@ -170,6 +223,53 @@ public class DiaryService {
         User author = findAuthor(diary.getId());
         return author != null
                 && followRepository.existsByFollowerIdAndFollowingId(userId, author.getId());
+    }
+
+    /**
+     * 두 피드가 공유하는 변환. 목록 조회와 마찬가지로 작성자를 한 번에 가져와 메모리에서 묶는다.
+     */
+    private List<FeedItemResponse> toFeedItems(List<Diary> diaries) {
+        Map<Long, User> authors = findAuthors(diaries.stream().map(Diary::getId).toList());
+
+        return diaries.stream()
+                .map(diary -> {
+                    User author = authors.get(diary.getId());
+                    return new FeedItemResponse(
+                            diary.getId(),
+                            diary.getFinalImgUrl(),
+                            diary.getTitle(),
+                            author == null ? null : new FeedUserResponse(
+                                    author.getId(), author.getNickname(), author.getProfileImageUrl())
+                    );
+                })
+                .toList();
+    }
+
+    private long cursorOrFirstPage(Long cursor) {
+        return cursor == null ? FIRST_PAGE_CURSOR : cursor;
+    }
+
+    /**
+     * 잘못된 limit으로 에러를 주기보다 조용히 보정한다 — 피드는 클라이언트가 스크롤하며
+     * 반복 호출하는 경로라, 값 하나 때문에 화면이 비는 것보다 기본값으로 굴러가는 편이 낫다.
+     */
+    private int pageSize(int limit) {
+        if (limit < 1) {
+            return DEFAULT_LIMIT;
+        }
+        return Math.min(limit, MAX_LIMIT);
+    }
+
+    /**
+     * 댓글·좋아요 알림의 수신자를 정하려고 열어둔 진입점. 작성자 판정이 목록·피드와 같은
+     * findAuthors를 타므로, 화면에 작성자로 보이는 사람과 알림을 받는 사람이 항상 일치한다.
+     *
+     * @return 협업자가 모두 탈퇴해 작성자를 특정할 수 없으면 null
+     */
+    @Transactional(readOnly = true)
+    public Long findAuthorId(Long diaryId) {
+        User author = findAuthor(diaryId);
+        return author == null ? null : author.getId();
     }
 
     private User findAuthor(Long diaryId) {

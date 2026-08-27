@@ -7,6 +7,8 @@ import com.drawingdiary.backend.domain.diary.Diary;
 import com.drawingdiary.backend.domain.diary.DiaryCollaborator;
 import com.drawingdiary.backend.domain.diary.DiaryCollaboratorRepository;
 import com.drawingdiary.backend.domain.diary.DiaryRepository;
+import com.drawingdiary.backend.domain.notification.NotificationService;
+import com.drawingdiary.backend.domain.notification.NotificationType;
 import com.drawingdiary.backend.domain.room.dto.RoomCreateResponse;
 import com.drawingdiary.backend.domain.room.dto.RoomInviteRequest;
 import com.drawingdiary.backend.domain.room.dto.RoomMemberResponse;
@@ -39,6 +41,7 @@ public class RoomService {
     private final DiaryCollaboratorRepository diaryCollaboratorRepository;
     private final CategoryRepository categoryRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     /**
      * The owner is written into room_members as well as drawing_rooms.owner_id so
@@ -116,6 +119,10 @@ public class RoomService {
                     .receiver(receiver)
                     .status(InviteStatus.PENDING)
                     .build());
+
+            // 위 continue들을 통과한 경우에만 — 이미 멤버이거나 초대가 살아 있으면 초대장이
+            // 새로 생기지 않으므로 알림도 다시 보내지 않는다.
+            notificationService.notify(invitedUserId, userId, NotificationType.ROOM_INVITE, roomId);
         }
     }
 

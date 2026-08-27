@@ -27,6 +27,11 @@ public class DiaryController {
 
     private final DiaryService diaryService;
 
+    /**
+     * @deprecated /api/explore를 쓸 것. 응답 형식이 다르고(FeedItemResponse) 커서
+     * 페이지네이션이 붙는다. 기존 프론트가 붙어 있을 수 있어 남겨둔 경로다.
+     */
+    @Deprecated
     @GetMapping
     public ResponseEntity<List<DiaryListResponse>> findAll() {
         return ResponseEntity.ok(diaryService.findAll());

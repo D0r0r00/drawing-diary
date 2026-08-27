@@ -2,6 +2,8 @@ package com.drawingdiary.backend.domain.like;
 
 import com.drawingdiary.backend.domain.diary.DiaryService;
 import com.drawingdiary.backend.domain.like.dto.LikeResponse;
+import com.drawingdiary.backend.domain.notification.NotificationService;
+import com.drawingdiary.backend.domain.notification.NotificationType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,6 +14,7 @@ public class LikeService {
 
     private final LikeRepository likeRepository;
     private final DiaryService diaryService;
+    private final NotificationService notificationService;
 
     /**
      * 멱등: 이미 눌러둔 좋아요를 다시 눌러도 에러 없이 현재 상태를 그대로 돌려준다.
@@ -21,7 +24,14 @@ public class LikeService {
     public LikeResponse like(Long userId, Long diaryId) {
         diaryService.getReadableDiaryOrThrow(userId, diaryId);
 
-        likeRepository.insertIfAbsent(diaryId, userId);
+        // insertIfAbsent가 실제로 넣은 행 수. 이미 눌러둔 상태에서 다시 호출하면 0이라
+        // 알림이 다시 가지 않는다 — 멱등한 API가 알림만 계속 쌓는 일을 막는다.
+        boolean newlyLiked = likeRepository.insertIfAbsent(diaryId, userId) > 0;
+
+        if (newlyLiked) {
+            notificationService.notify(
+                    diaryService.findAuthorId(diaryId), userId, NotificationType.LIKE, diaryId);
+        }
 
         return new LikeResponse(diaryId, true, likeRepository.countByDiaryId(diaryId));
     }
