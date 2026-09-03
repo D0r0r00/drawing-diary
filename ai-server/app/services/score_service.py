@@ -10,7 +10,7 @@ class GeminiScoreResult(BaseModel):
     feedback: str
 
 
-def score_diary(text: str, image_bytes: bytes, mime_type: str, like_count: int):
+def score_diary(text: str, image_bytes: bytes, mime_type: str):
 
     prompt = f"""
 다음은 사용자가 작성한 그림일기입니다.
@@ -102,18 +102,9 @@ relationScore와 colorScore의 평가 결과를 바탕으로
     relation_score = result.relationScore
     color_score = result.colorScore
 
-    like_score = min(like_count * 5, 100)
-
-    total_score = round(
-        relation_score * 0.5 +
-        color_score * 0.3 +
-        like_score * 0.2
-    )
 
     return {
-        "totalScore": total_score,
-        "relationScore": relation_score,
+        "relevanceScore": relation_score,
         "colorScore": color_score,
-        "likeScore": like_score,
         "feedback": result.feedback
     }
