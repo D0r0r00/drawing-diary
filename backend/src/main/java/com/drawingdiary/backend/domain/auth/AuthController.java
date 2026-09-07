@@ -5,6 +5,8 @@ import com.drawingdiary.backend.domain.auth.dto.LoginResponse;
 import com.drawingdiary.backend.domain.auth.dto.LogoutRequest;
 import com.drawingdiary.backend.domain.auth.dto.SignupRequest;
 import com.drawingdiary.backend.domain.auth.dto.SignupResponse;
+import com.drawingdiary.backend.domain.auth.dto.TokenRefreshRequest;
+import com.drawingdiary.backend.domain.auth.dto.TokenRefreshResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -29,6 +31,11 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(authService.login(request));
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<TokenRefreshResponse> refresh(@Valid @RequestBody TokenRefreshRequest request) {
+        return ResponseEntity.ok(authService.refresh(request));
     }
 
     @PostMapping("/logout")

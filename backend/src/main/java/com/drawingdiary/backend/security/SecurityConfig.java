@@ -24,6 +24,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -32,6 +33,8 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // /api/auth/** 에는 refresh도 포함된다. 재발급은 accessToken이
+                        // 이미 만료된 상태에서 호출하는 경로라 인증을 요구할 수 없다.
                         .requestMatchers("/api/auth/**").permitAll()
                         // 스프링이 에러 응답을 만들 때 /error로 다시 디스패치하는데, 이 내부
                         // 디스패치는 인증 정보를 들고 오지 않는다. /error를 막아두면 원래
@@ -40,6 +43,9 @@ public class SecurityConfig {
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated()
                 )
+                // 기본 EntryPoint는 403에 스프링 부트 기본 에러 본문을 내려서 실패 사유가
+                // 드러나지 않는다. 401 + {code, message}로 바꿔 프론트가 만료를 식별하게 한다.
+                .exceptionHandling(handling -> handling.authenticationEntryPoint(jwtAuthenticationEntryPoint))
                 .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider), UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

@@ -12,7 +12,12 @@ public interface DiaryCollaboratorRepository extends JpaRepository<DiaryCollabor
 
     long deleteByDiaryId(Long diaryId);
 
-    @Query("select c.diary from DiaryCollaborator c where c.user.id = :userId order by c.diary.id desc")
+    /**
+     * category까지 함께 가져온다. 응답에 categoryName이 들어가는데 Diary.category가
+     * LAZY라, 조인 없이 두면 일기 건수만큼 카테고리 조회가 따라붙는다.
+     */
+    @Query("select d from DiaryCollaborator c join c.diary d left join fetch d.category "
+            + "where c.user.id = :userId order by d.id desc")
     List<Diary> findDiariesByUserId(@Param("userId") Long userId);
 
     /**

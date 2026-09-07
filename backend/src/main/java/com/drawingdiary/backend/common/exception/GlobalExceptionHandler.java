@@ -1,8 +1,11 @@
 package com.drawingdiary.backend.common.exception;
 
+import com.drawingdiary.backend.domain.auth.exception.AuthTokenException;
 import com.drawingdiary.backend.domain.auth.exception.DuplicateEmailException;
 import com.drawingdiary.backend.domain.auth.exception.InvalidCredentialsException;
 import com.drawingdiary.backend.domain.category.exception.CategoryNotFoundException;
+import com.drawingdiary.backend.domain.category.exception.DuplicateCategoryNameException;
+import com.drawingdiary.backend.domain.category.exception.NotCategoryOwnerException;
 import com.drawingdiary.backend.domain.comment.exception.CommentNotFoundException;
 import com.drawingdiary.backend.domain.comment.exception.NotCommentAuthorException;
 import com.drawingdiary.backend.domain.diary.exception.DiaryAccessDeniedException;
@@ -29,6 +32,16 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    /**
+     * 토큰 재발급처럼 컨트롤러까지 도달한 인증 실패. 시큐리티 필터에서 끊긴 요청은
+     * JwtAuthenticationEntryPoint가 처리하지만, 양쪽 응답 형태가 같아야 프론트가
+     * 인증 에러를 한 곳에서 처리할 수 있으므로 여기서도 {code, message}로 내려준다.
+     */
+    @ExceptionHandler(AuthTokenException.class)
+    public ResponseEntity<AuthErrorResponse> handleAuthToken(AuthTokenException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(AuthErrorResponse.of(e.getErrorCode()));
+    }
 
     @ExceptionHandler(DuplicateEmailException.class)
     public ResponseEntity<ErrorResponse> handleDuplicateEmail(DuplicateEmailException e) {
@@ -68,6 +81,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(CategoryNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleCategoryNotFound(CategoryNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(DuplicateCategoryNameException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateCategoryName(DuplicateCategoryNameException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(NotCategoryOwnerException.class)
+    public ResponseEntity<ErrorResponse> handleNotCategoryOwner(NotCategoryOwnerException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(e.getMessage()));
     }
 
     @ExceptionHandler(NotRoomMemberException.class)

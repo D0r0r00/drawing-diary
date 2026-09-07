@@ -43,6 +43,9 @@ public class User {
     @Column(name = "profile_img_url", length = 500)
     private String profileImageUrl;
 
+    @Column(length = 500)
+    private String bio;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -62,8 +65,19 @@ public class User {
         this.nickname = nickname;
     }
 
-    public void updateProfile(String nickname, String profileImageUrl) {
-        this.nickname = nickname;
-        this.profileImageUrl = profileImageUrl;
+    /**
+     * 부분 수정. null인 인자는 "보내지 않았다"는 뜻이므로 기존 값을 유지한다.
+     * 값을 비우려면 빈 문자열을 보낸다 — 그래야 "생략"과 "지우기"가 구분된다.
+     */
+    public void applyProfileUpdate(String nickname, String profileImageUrl, String bio) {
+        if (nickname != null) {
+            this.nickname = nickname;
+        }
+        if (profileImageUrl != null) {
+            this.profileImageUrl = profileImageUrl;
+        }
+        if (bio != null) {
+            this.bio = bio;
+        }
     }
 }

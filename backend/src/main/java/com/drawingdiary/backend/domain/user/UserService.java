@@ -1,5 +1,6 @@
 package com.drawingdiary.backend.domain.user;
 
+import com.drawingdiary.backend.domain.follow.FollowRepository;
 import com.drawingdiary.backend.domain.user.dto.UserResponse;
 import com.drawingdiary.backend.domain.user.dto.UserSearchResponse;
 import com.drawingdiary.backend.domain.user.dto.UserUpdateRequest;
@@ -19,22 +20,46 @@ import java.util.List;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final FollowRepository followRepository;
     private final RefreshTokenStore refreshTokenStore;
 
+    /**
+     * 팔로워/팔로잉 수는 저장해두지 않고 매번 센다. 카운터 컬럼을 두면 팔로우/언팔로우와
+     * 탈퇴까지 모두 같이 갱신해야 해서 어긋나기 쉬운데, 여기서는 대상이 한 명이라
+     * 집계 쿼리 두 번으로 끝난다(사용자 조회까지 합쳐 요청당 쿼리 3번 고정, N+1 없음).
+     */
     @Transactional(readOnly = true)
     public UserResponse getMe(Long userId) {
         User user = getUserOrThrow(userId);
-        return new UserResponse(user.getId(), user.getEmail(), user.getNickname(), user.getProfileImageUrl());
+        return new UserResponse(
+                user.getId(),
+                user.getEmail(),
+                user.getNickname(),
+                user.getProfileImageUrl(),
+                user.getBio(),
+                followRepository.countFollowersByFollowingId(userId),
+                followRepository.countFollowingsByFollowerId(userId)
+        );
     }
 
+    /**
+     * 부분 수정: 보낸 필드만 반영하고 나머지는 그대로 둔다. 닉네임 중복 검사도
+     * 닉네임을 실제로 보냈을 때만 하는데, 생략했다면 값이 바뀌지 않으므로 자기 자신의
+     * 닉네임과 충돌한다고 볼 이유가 없기 때문이다.
+     */
     @Transactional
     public UserUpdateResponse updateMe(Long userId, UserUpdateRequest request) {
         User user = getUserOrThrow(userId);
-        if (!user.getNickname().equals(request.nickname()) && userRepository.existsByNickname(request.nickname())) {
-            throw new DuplicateNicknameException(request.nickname());
+
+        String nickname = request.nickname();
+        if (nickname != null
+                && !user.getNickname().equals(nickname)
+                && userRepository.existsByNickname(nickname)) {
+            throw new DuplicateNicknameException(nickname);
         }
-        user.updateProfile(request.nickname(), request.profileImageUrl());
-        return new UserUpdateResponse(user.getId(), user.getNickname(), user.getProfileImageUrl());
+
+        user.applyProfileUpdate(nickname, request.profileImageUrl(), request.bio());
+        return new UserUpdateResponse(user.getId(), user.getNickname(), user.getProfileImageUrl(), user.getBio());
     }
 
     /**

@@ -4,6 +4,9 @@ public record UserResponse(
         Long id,
         String email,
         String nickname,
-        String profileImageUrl
+        String profileImageUrl,
+        String bio,
+        long followerCount,
+        long followingCount
 ) {
 }

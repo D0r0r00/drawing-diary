@@ -1,6 +1,7 @@
 package com.drawingdiary.backend.domain.diary;
 
 import com.drawingdiary.backend.domain.aiscore.AiScoreRepository;
+import com.drawingdiary.backend.domain.category.Category;
 import com.drawingdiary.backend.domain.comment.CommentRepository;
 import com.drawingdiary.backend.domain.diary.dto.DiaryDeleteResponse;
 import com.drawingdiary.backend.domain.diary.dto.DiaryDetailResponse;
@@ -123,8 +124,11 @@ public class DiaryService {
                 .map(diary -> new MyDiaryResponse(
                         diary.getId(),
                         diary.getTitle(),
-                        diary.getCreatedAt(),
+                        diary.getContent(),
                         diary.getFinalImgUrl(),
+                        diary.getCreatedAt(),
+                        categoryId(diary),
+                        categoryName(diary),
                         diary.getVisibility()
                 ))
                 .toList();
@@ -138,10 +142,14 @@ public class DiaryService {
                 diary.getId(),
                 diary.getTitle(),
                 diary.getContent(),
-                encodeCanvasData(diary.getCanvasData()),
                 diary.getFinalImgUrl(),
+                diary.getFinalImgUrl(),
+                diary.getCreatedAt(),
+                categoryId(diary),
+                categoryName(diary),
                 diary.getVisibility(),
-                diary.getCreatedAt()
+                encodeCanvasData(diary.getCanvasData()),
+                diary.getContent()
         );
     }
 
@@ -236,10 +244,16 @@ public class DiaryService {
                     User author = authors.get(diary.getId());
                     return new FeedItemResponse(
                             diary.getId(),
-                            diary.getFinalImgUrl(),
                             diary.getTitle(),
+                            diary.getContent(),
+                            diary.getFinalImgUrl(),
+                            diary.getCreatedAt(),
+                            categoryId(diary),
+                            categoryName(diary),
                             author == null ? null : new FeedUserResponse(
-                                    author.getId(), author.getNickname(), author.getProfileImageUrl())
+                                    author.getId(), author.getNickname(), author.getProfileImageUrl()),
+                            diary.getId(),
+                            diary.getFinalImgUrl()
                     );
                 })
                 .toList();
@@ -292,6 +306,20 @@ public class DiaryService {
                         DiaryCollaborator::getUser,
                         (first, next) -> first
                 ));
+    }
+
+    /**
+     * 분류가 없는 일기는 categoryId·categoryName이 함께 null이 된다. 목록 경로는
+     * category를 fetch join으로 미리 가져오므로 여기서 추가 쿼리가 나가지 않는다.
+     */
+    private Long categoryId(Diary diary) {
+        Category category = diary.getCategory();
+        return category == null ? null : category.getId();
+    }
+
+    private String categoryName(Diary diary) {
+        Category category = diary.getCategory();
+        return category == null ? null : category.getName();
     }
 
     /**

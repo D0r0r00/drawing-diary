@@ -2,6 +2,7 @@ package com.drawingdiary.backend.domain.diary;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -17,6 +18,7 @@ public interface DiaryRepository extends JpaRepository<Diary, Long> {
      */
     @Query("""
             select d from Diary d
+            left join fetch d.category
             where d.visibility = :visibility
               and d.id < :cursor
             order by d.id desc
@@ -48,6 +50,7 @@ public interface DiaryRepository extends JpaRepository<Diary, Long> {
      */
     @Query("""
             select d from Diary d
+            left join fetch d.category
             where d.id < :cursor
               and exists (
                   select 1 from DiaryCollaborator author
@@ -76,4 +79,15 @@ public interface DiaryRepository extends JpaRepository<Diary, Long> {
             @Param("cursor") Long cursor,
             Pageable pageable
     );
+
+    /**
+     * 카테고리 삭제 전에 참조를 끊는다. diaries.category_id에 ON DELETE SET NULL이 없어서
+     * 이 단계를 건너뛰면 FK 위반이 난다.
+     *
+     * 영속성 컨텍스트를 우회하는 벌크 연산이라, 이미 로딩된 Diary가 남아 있으면 옛 카테고리를
+     * 그대로 들고 있게 된다. clearAutomatically로 컨텍스트를 비워 그 불일치를 막는다.
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("update Diary d set d.category = null where d.category.id = :categoryId")
+    int clearCategory(@Param("categoryId") Long categoryId);
 }
