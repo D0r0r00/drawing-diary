@@ -32,43 +32,59 @@ public interface DiaryRepository extends JpaRepository<Diary, Long> {
     /**
      * 팔로잉 피드. DiaryService.canRead와 같은 판정을 목록에 한 번에 적용한 것으로,
      * 둘 중 하나만 고치면 "일기는 안 보이는데 피드에는 뜨는" 어긋남이 생기니 같이 봐야 한다.
-     * <ul>
-     *   <li>작성자(= 협업자 중 첫 번째)가 :authorIds에 있어야 한다 — 팔로우한 사람의 글만.</li>
-     *   <li>PUBLIC·FOLLOWERS_ONLY는 그대로 통과. 요청자가 작성자를 팔로우한다는 것이 이미
-     *       위 조건으로 보장되므로 FOLLOWERS_ONLY의 팔로우 검사를 따로 할 필요가 없다.</li>
-     *   <li>PRIVATE은 요청자가 협업자일 때만.</li>
-     * </ul>
-     * 팔로우 여부를 IN 절 하나로 넘기고 협업자·작성자 판정을 exists로 처리해서, 결과가 몇 건이든
-     * 이 메서드는 쿼리 한 번이다.
-     * <p>
-     * min() 서브쿼리에서 {@code firstUser.deletedAt is null}을 직접 쓰는 이유: 이 조건은
+     *
+     * <h4>포함 조건 — 협업자 중 누구라도 팔로우 중이면</h4>
+     * 예전에는 "작성자(= 첫 협업자)를 팔로우한 일기"만 넣었다. 같이 그린 사람을 팔로우하고 있어도
+     * 그 사람이 방장이 아니면 피드에 안 뜨는 게 어색해서, 협업자 아무나 한 명이라도 :authorIds에
+     * 있으면 포함하도록 넓혔다. exists라 협업자 여럿을 동시에 팔로우해도 일기는 한 번만 나온다
+     * (distinct 없이 중복 제거되고, 커서 페이지네이션도 그대로 성립).
+     *
+     * <h4>공개 범위 판정은 넓히지 않았다</h4>
+     * 포함 조건만 넓히고 FOLLOWERS_ONLY 규칙은 canRead와 똑같이 "작성자를 팔로우"로 남겨뒀다.
+     * 여기까지 넓히면 작성자가 모르는 사람(공동 작업자의 팔로워)에게 글이 열리는 셈이라,
+     * 작성자가 고른 공개 범위를 서버가 임의로 완화하는 일이 된다. 덕분에 피드에 뜬 일기는
+     * 항상 탭해서 열 수 있다(피드 ⊆ 조회 가능).
+     *
+     * <h4>min() 서브쿼리의 firstUser.deletedAt</h4>
      * User의 @SQLRestriction과 겹쳐 얼핏 군더더기로 보이지만, 조인을 <b>참조</b>하지 않으면
      * Hibernate가 쓰이지 않는 조인이라며 통째로 지워버린다(그러면 @SQLRestriction도 함께 사라진다).
-     * 그 상태에서 방장이 탈퇴하면 min()이 탈퇴한 사람의 행을 집어 바깥 조건과 어긋나고, 결국
-     * 남은 협업자를 팔로우하고 있어도 그 일기가 피드에서 통째로 사라진다.
+     * 그 상태에서 방장이 탈퇴하면 min()이 탈퇴한 사람의 행을 집어 바깥 조건과 어긋난다.
      * findWithUserByDiaryIds가 정하는 작성자와 같은 사람을 골라야 한다.
+     * <p>
+     * 이제 이 서브쿼리는 FOLLOWERS_ONLY 가지에서만 쓰인다. PUBLIC 일기는 방장이 탈퇴해도
+     * 남은 협업자를 팔로우하고 있으면 그대로 보이고, 응답의 작성자는 다음 생존 협업자가 된다.
+     * <p>
+     * 팔로우 여부를 IN 절 하나로 넘기고 협업자·작성자 판정을 exists로 처리해서, 결과가 몇 건이든
+     * 이 메서드는 쿼리 한 번이다.
      */
     @Query("""
             select d from Diary d
             left join fetch d.category
             where d.id < :cursor
               and exists (
-                  select 1 from DiaryCollaborator author
-                  join author.user authorUser
-                  where author.diary = d
-                    and authorUser.id in :authorIds
-                    and author.id = (
-                        select min(first.id) from DiaryCollaborator first
-                        join first.user firstUser
-                        where first.diary = d
-                          and firstUser.deletedAt is null
-                    )
+                  select 1 from DiaryCollaborator mate
+                  where mate.diary = d and mate.user.id in :authorIds
               )
               and (
-                  d.visibility <> com.drawingdiary.backend.domain.diary.Visibility.PRIVATE
+                  d.visibility = com.drawingdiary.backend.domain.diary.Visibility.PUBLIC
                   or exists (
                       select 1 from DiaryCollaborator me
                       where me.diary = d and me.user.id = :userId
+                  )
+                  or (
+                      d.visibility = com.drawingdiary.backend.domain.diary.Visibility.FOLLOWERS_ONLY
+                      and exists (
+                          select 1 from DiaryCollaborator author
+                          join author.user authorUser
+                          where author.diary = d
+                            and authorUser.id in :authorIds
+                            and author.id = (
+                                select min(first.id) from DiaryCollaborator first
+                                join first.user firstUser
+                                where first.diary = d
+                                  and firstUser.deletedAt is null
+                            )
+                      )
                   )
               )
             order by d.id desc

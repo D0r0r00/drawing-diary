@@ -1,5 +1,6 @@
 package com.drawingdiary.backend.domain.like;
 
+import com.drawingdiary.backend.domain.aiscore.AiScoreService;
 import com.drawingdiary.backend.domain.diary.DiaryService;
 import com.drawingdiary.backend.domain.like.dto.LikeResponse;
 import com.drawingdiary.backend.domain.notification.NotificationService;
@@ -15,6 +16,7 @@ public class LikeService {
     private final LikeRepository likeRepository;
     private final DiaryService diaryService;
     private final NotificationService notificationService;
+    private final AiScoreService aiScoreService;
 
     /**
      * 멱등: 이미 눌러둔 좋아요를 다시 눌러도 에러 없이 현재 상태를 그대로 돌려준다.
@@ -31,6 +33,9 @@ public class LikeService {
         if (newlyLiked) {
             notificationService.notify(
                     diaryService.findAuthorId(diaryId), userId, NotificationType.LIKE, diaryId);
+            // 좋아요 수가 랭킹 점수에 들어가므로 실제로 변했을 때만 총점을 다시 계산한다.
+            // 알림과 같은 자리인 이유도 같다 — 멱등 재호출로는 아무것도 변하지 않았다.
+            aiScoreService.refreshLikeScore(diaryId);
         }
 
         return new LikeResponse(diaryId, true, likeRepository.countByDiaryId(diaryId));
@@ -43,7 +48,11 @@ public class LikeService {
      */
     @Transactional
     public LikeResponse unlike(Long userId, Long diaryId) {
-        likeRepository.deleteByDiaryIdAndUserId(diaryId, userId);
+        boolean actuallyRemoved = likeRepository.deleteByDiaryIdAndUserId(diaryId, userId) > 0;
+
+        if (actuallyRemoved) {
+            aiScoreService.refreshLikeScore(diaryId);
+        }
 
         return new LikeResponse(diaryId, false, likeRepository.countByDiaryId(diaryId));
     }

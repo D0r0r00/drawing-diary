@@ -94,8 +94,14 @@ public class DiaryService {
     }
 
     /**
-     * 팔로잉 피드 — 내가 팔로우하는 사람이 작성한 일기만. 팔로우는 단방향이고 자기 자신은
+     * 팔로잉 피드 — 내가 팔로우하는 사람이 <b>협업자로 참여한</b> 일기. 방장이 아니어도 되고,
+     * 한 일기에서 여러 명을 팔로우 중이어도 한 번만 나온다. 팔로우는 단방향이고 자기 자신은
      * 팔로우할 수 없으므로 내 일기는 여기 나오지 않는다(내 일기는 /api/diaries/my).
+     *
+     * 응답의 user는 여전히 작성자(첫 생존 협업자)다 — 목록·상세·알림이 모두 findAuthors를
+     * 쓰므로 "화면에 보이는 작성자"가 어디서나 같은 사람이다. 팔로우한 사람이 방장이 아니어서
+     * 카드에 낯선 이름이 뜰 수는 있지만, 일기 하나의 대표 작성자는 하나여야 하고 그 자리를
+     * "내가 팔로우한 협업자"로 바꾸면 보는 사람마다 작성자가 달라진다.
      *
      * 공개 범위 판정은 DiaryRepository.findFeedByAuthorIds가 SQL로 한 번에 처리한다.
      * 일기마다 canRead를 부르면 팔로우·협업자 확인이 건수만큼 반복될 자리다.
@@ -284,6 +290,15 @@ public class DiaryService {
     public Long findAuthorId(Long diaryId) {
         User author = findAuthor(diaryId);
         return author == null ? null : author.getId();
+    }
+
+    /**
+     * 랭킹 목록이 작성자를 한 번에 채우려고 쓰는 진입점. 목록·피드·알림과 같은 findAuthors를
+     * 타므로 어느 화면에서든 같은 사람이 작성자로 나온다.
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, User> findAuthorsByDiaryIds(List<Long> diaryIds) {
+        return findAuthors(diaryIds);
     }
 
     private User findAuthor(Long diaryId) {

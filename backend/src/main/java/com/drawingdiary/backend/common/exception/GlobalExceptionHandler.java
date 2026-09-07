@@ -1,5 +1,6 @@
 package com.drawingdiary.backend.common.exception;
 
+import com.drawingdiary.backend.domain.aiscore.exception.AiScoreNotFoundException;
 import com.drawingdiary.backend.domain.auth.exception.AuthTokenException;
 import com.drawingdiary.backend.domain.auth.exception.DuplicateEmailException;
 import com.drawingdiary.backend.domain.auth.exception.InvalidCredentialsException;
@@ -195,6 +196,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(RoomSubmitContentMissingException.class)
     public ResponseEntity<ErrorResponse> handleRoomSubmitContentMissing(RoomSubmitContentMissingException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(AiScoreNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleAiScoreNotFound(AiScoreNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(e.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
