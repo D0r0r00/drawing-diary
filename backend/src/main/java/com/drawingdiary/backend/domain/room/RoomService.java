@@ -9,25 +9,32 @@ import com.drawingdiary.backend.domain.diary.DiaryCollaboratorRepository;
 import com.drawingdiary.backend.domain.diary.DiaryRepository;
 import com.drawingdiary.backend.domain.notification.NotificationService;
 import com.drawingdiary.backend.domain.notification.NotificationType;
+import com.drawingdiary.backend.domain.room.dto.RoomCanvasResponse;
+import com.drawingdiary.backend.domain.room.dto.RoomCanvasSaveRequest;
+import com.drawingdiary.backend.domain.room.dto.RoomCanvasSaveResponse;
 import com.drawingdiary.backend.domain.room.dto.RoomCreateResponse;
 import com.drawingdiary.backend.domain.room.dto.RoomInviteRequest;
 import com.drawingdiary.backend.domain.room.dto.RoomMemberResponse;
 import com.drawingdiary.backend.domain.room.dto.RoomResponse;
 import com.drawingdiary.backend.domain.room.dto.RoomSubmitRequest;
 import com.drawingdiary.backend.domain.room.dto.RoomSubmitResponse;
+import com.drawingdiary.backend.domain.room.exception.InvalidCanvasDataException;
 import com.drawingdiary.backend.domain.room.exception.NotRoomMemberException;
 import com.drawingdiary.backend.domain.room.exception.NotRoomOwnerException;
 import com.drawingdiary.backend.domain.room.exception.OwnerCannotLeaveRoomException;
 import com.drawingdiary.backend.domain.room.exception.RoomAlreadyFinishedException;
 import com.drawingdiary.backend.domain.room.exception.RoomInviteNotFoundException;
 import com.drawingdiary.backend.domain.room.exception.RoomNotFoundException;
+import com.drawingdiary.backend.domain.room.exception.RoomSubmitContentMissingException;
 import com.drawingdiary.backend.domain.user.User;
 import com.drawingdiary.backend.domain.user.UserRepository;
 import com.drawingdiary.backend.domain.user.exception.UserNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Base64;
 import java.util.List;
 
 @Service
@@ -182,14 +189,33 @@ public class RoomService {
             throw new RoomAlreadyFinishedException(roomId);
         }
 
+        // 본문에 담겨 온 값이 우선이고, 없으면 방에 임시 저장해둔 값을 쓴다. 그림을 그리는
+        // 동안 자동 저장만 하다가 발행 시에는 공개 범위만 보내는 흐름을 지원하기 위한 것이다.
+        String title = firstNonNull(request.title(), room.getTitle());
+        String content = firstNonNull(request.content(), room.getContent());
+        byte[] canvasData = request.canvasData() == null
+                ? room.getCanvasData()
+                : decodeCanvasData(request.canvasData());
+
+        // diaries.title/content는 NOT NULL이라 둘 다 비어 있으면 여기서 막아야 한다.
+        // 그냥 두면 제약 위반이 500으로 새어나간다.
+        if (!StringUtils.hasText(title)) {
+            throw new RoomSubmitContentMissingException("제목");
+        }
+        if (!StringUtils.hasText(content)) {
+            throw new RoomSubmitContentMissingException("내용");
+        }
+
         Diary diary = diaryRepository.save(Diary.builder()
                 .room(room)
                 .category(findCategoryOrThrow(request.categoryId()))
-                .title(request.title())
-                .content(request.content())
+                .title(title)
+                .content(content)
                 .finalImgUrl(request.finalImg())
                 .visibility(request.visibility())
                 .build());
+
+        diary.updateCanvasData(canvasData);
 
         List<DiaryCollaborator> collaborators = roomMemberRepository.findMembersByRoomId(roomId).stream()
                 .map(member -> DiaryCollaborator.builder()
@@ -202,6 +228,75 @@ public class RoomService {
         room.changeStatus(RoomStatus.FINISHED);
 
         return new RoomSubmitResponse(diary.getId());
+    }
+
+    /**
+     * 작업 중간 저장. 방 멤버면 누구나 저장할 수 있어서, 여럿이 같이 그리다 아무나 나가도
+     * 마지막 상태가 남는다. 마지막에 저장한 사람의 내용이 남는 방식이라 동시 편집의 병합은
+     * 하지 않는다 — 실시간 동기화가 붙기 전까지의 임시 보관 용도다.
+     *
+     * 이미 발행된 방을 막는 이유는 발행 시점의 스냅샷이 곧 일기이기 때문이다. 발행 후에도
+     * 방의 캔버스를 고칠 수 있으면 일기와 방의 내용이 소리 없이 어긋난다.
+     */
+    @Transactional
+    public RoomCanvasSaveResponse saveCanvas(Long userId, Long roomId, RoomCanvasSaveRequest request) {
+        DrawingRoom room = getRoomOrThrow(roomId);
+        requireMember(roomId, userId);
+
+        if (room.getStatus() == RoomStatus.FINISHED) {
+            throw new RoomAlreadyFinishedException(roomId);
+        }
+
+        room.saveWorkInProgress(
+                request.canvasData() == null ? null : decodeCanvasData(request.canvasData()),
+                request.title(),
+                request.content());
+
+        // @UpdateTimestamp는 flush 때 채워지므로, 응답에 방금 저장한 시각을 담으려면
+        // 커밋을 기다리지 않고 여기서 flush해야 한다.
+        roomRepository.flush();
+
+        return new RoomCanvasSaveResponse(room.getId(), room.getUpdatedAt());
+    }
+
+    /**
+     * 저장해둔 것이 없으면 세 필드가 모두 null로 내려간다 — 아직 아무도 그리지 않은 방과
+     * 방금 만든 방을 클라이언트가 같은 방식으로 다룰 수 있게 하려는 것이다.
+     */
+    @Transactional(readOnly = true)
+    public RoomCanvasResponse findCanvas(Long userId, Long roomId) {
+        DrawingRoom room = getRoomOrThrow(roomId);
+        requireMember(roomId, userId);
+
+        return new RoomCanvasResponse(
+                room.getId(),
+                encodeCanvasData(room.getCanvasData()),
+                room.getTitle(),
+                room.getContent(),
+                room.getUpdatedAt());
+    }
+
+    /**
+     * BYTEA를 JSON에 실을 수 없어 Base64로 주고받는다. Diary 상세 조회의 canvasData와
+     * 같은 인코딩이라 프론트는 한 가지 방식만 다루면 된다.
+     */
+    private byte[] decodeCanvasData(String base64) {
+        try {
+            return Base64.getDecoder().decode(base64);
+        } catch (IllegalArgumentException e) {
+            throw new InvalidCanvasDataException();
+        }
+    }
+
+    private String encodeCanvasData(byte[] canvasData) {
+        if (canvasData == null) {
+            return null;
+        }
+        return Base64.getEncoder().encodeToString(canvasData);
+    }
+
+    private String firstNonNull(String requestValue, String savedValue) {
+        return requestValue != null ? requestValue : savedValue;
     }
 
     private Category findCategoryOrThrow(Long categoryId) {

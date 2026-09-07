@@ -16,6 +16,12 @@ spring:
       hibernate:
         format_sql: true
     open-in-view: false
+  servlet:
+    multipart:
+      # 이미지 업로드 상한. 이 값을 넘으면 컨테이너가 MaxUploadSizeExceededException을
+      # 던지고 GlobalExceptionHandler가 413으로 바꿔준다.
+      max-file-size: 10MB
+      max-request-size: 11MB
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -23,6 +29,9 @@ spring:
 
 server:
   port: 8080
+  # Railway 같은 프록시 뒤에서 X-Forwarded-* 를 반영해 원래 스킴/호스트를 복원한다.
+  # 이게 없으면 업로드 응답의 이미지 URL이 http://내부주소 로 만들어져 브라우저가 막는다.
+  forward-headers-strategy: framework
 
 jwt:
   secret: ${JWT_SECRET:}

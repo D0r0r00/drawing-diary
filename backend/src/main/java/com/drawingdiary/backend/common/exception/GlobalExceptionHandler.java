@@ -12,15 +12,20 @@ import com.drawingdiary.backend.domain.diary.exception.DiaryAccessDeniedExceptio
 import com.drawingdiary.backend.domain.diary.exception.DiaryNotFoundException;
 import com.drawingdiary.backend.domain.diary.exception.NotDiaryCollaboratorException;
 import com.drawingdiary.backend.domain.follow.exception.AlreadyFollowingException;
+import com.drawingdiary.backend.domain.image.exception.EmptyImageException;
+import com.drawingdiary.backend.domain.image.exception.ImageNotFoundException;
+import com.drawingdiary.backend.domain.image.exception.UnsupportedImageTypeException;
 import com.drawingdiary.backend.domain.follow.exception.SelfFollowException;
 import com.drawingdiary.backend.domain.notification.exception.NotNotificationReceiverException;
 import com.drawingdiary.backend.domain.notification.exception.NotificationNotFoundException;
+import com.drawingdiary.backend.domain.room.exception.InvalidCanvasDataException;
 import com.drawingdiary.backend.domain.room.exception.NotRoomMemberException;
 import com.drawingdiary.backend.domain.room.exception.NotRoomOwnerException;
 import com.drawingdiary.backend.domain.room.exception.OwnerCannotLeaveRoomException;
 import com.drawingdiary.backend.domain.room.exception.RoomAlreadyFinishedException;
 import com.drawingdiary.backend.domain.room.exception.RoomInviteNotFoundException;
 import com.drawingdiary.backend.domain.room.exception.RoomNotFoundException;
+import com.drawingdiary.backend.domain.room.exception.RoomSubmitContentMissingException;
 import com.drawingdiary.backend.domain.user.exception.DuplicateNicknameException;
 import com.drawingdiary.backend.domain.user.exception.UserNotFoundException;
 import org.springframework.http.HttpStatus;
@@ -29,6 +34,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -154,6 +160,41 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NotNotificationReceiverException.class)
     public ResponseEntity<ErrorResponse> handleNotNotificationReceiver(NotNotificationReceiverException e) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(UnsupportedImageTypeException.class)
+    public ResponseEntity<ErrorResponse> handleUnsupportedImageType(UnsupportedImageTypeException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(EmptyImageException.class)
+    public ResponseEntity<ErrorResponse> handleEmptyImage(EmptyImageException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(ImageNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleImageNotFound(ImageNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(e.getMessage()));
+    }
+
+    /**
+     * 413. 서블릿 컨테이너가 본문을 다 읽기 전에 끊어버리므로 컨트롤러까지 오지 않는데,
+     * 여기서 잡지 않으면 500으로 나간다.
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleMaxUploadSize(MaxUploadSizeExceededException e) {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(new ErrorResponse("이미지는 10MB 이하여야 합니다."));
+    }
+
+    @ExceptionHandler(InvalidCanvasDataException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidCanvasData(InvalidCanvasDataException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(RoomSubmitContentMissingException.class)
+    public ResponseEntity<ErrorResponse> handleRoomSubmitContentMissing(RoomSubmitContentMissingException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(e.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

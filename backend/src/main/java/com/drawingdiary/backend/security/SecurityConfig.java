@@ -7,6 +7,7 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -41,6 +42,10 @@ public class SecurityConfig {
                         // 상태 코드가 무엇이었든 그 재디스패치가 먼저 거부당해서, 잘못된 JSON
                         // 같은 400이 클라이언트에는 403으로 나가버린다.
                         .requestMatchers("/error").permitAll()
+                        // 이미지 서빙만 공개. <img src>는 Authorization 헤더를 붙일 수 없어
+                        // 인증을 요구하면 이미지가 아예 렌더링되지 않는다. 업로드(POST)는
+                        // 메서드를 GET으로 한정해 그대로 인증 대상으로 남는다.
+                        .requestMatchers(HttpMethod.GET, "/api/images/*").permitAll()
                         .anyRequest().authenticated()
                 )
                 // 기본 EntryPoint는 403에 스프링 부트 기본 에러 본문을 내려서 실패 사유가

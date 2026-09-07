@@ -1,5 +1,8 @@
 package com.drawingdiary.backend.domain.room;
 
+import com.drawingdiary.backend.domain.room.dto.RoomCanvasResponse;
+import com.drawingdiary.backend.domain.room.dto.RoomCanvasSaveRequest;
+import com.drawingdiary.backend.domain.room.dto.RoomCanvasSaveResponse;
 import com.drawingdiary.backend.domain.room.dto.RoomCreateResponse;
 import com.drawingdiary.backend.domain.room.dto.RoomInviteRequest;
 import com.drawingdiary.backend.domain.room.dto.RoomResponse;
@@ -14,6 +17,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -61,6 +65,23 @@ public class RoomController {
     public ResponseEntity<Void> leave(Authentication authentication, @PathVariable Long roomId) {
         roomService.leave(currentUserId(authentication), roomId);
         return ResponseEntity.ok().build();
+    }
+
+    @PutMapping("/{roomId}/canvas")
+    public ResponseEntity<RoomCanvasSaveResponse> saveCanvas(
+            Authentication authentication,
+            @PathVariable Long roomId,
+            @Valid @RequestBody RoomCanvasSaveRequest request
+    ) {
+        return ResponseEntity.ok(roomService.saveCanvas(currentUserId(authentication), roomId, request));
+    }
+
+    @GetMapping("/{roomId}/canvas")
+    public ResponseEntity<RoomCanvasResponse> findCanvas(
+            Authentication authentication,
+            @PathVariable Long roomId
+    ) {
+        return ResponseEntity.ok(roomService.findCanvas(currentUserId(authentication), roomId));
     }
 
     @PostMapping("/{roomId}/submit")
