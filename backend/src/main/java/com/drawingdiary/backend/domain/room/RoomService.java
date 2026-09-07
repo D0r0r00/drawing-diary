@@ -317,6 +317,21 @@ public class RoomService {
                 .orElseThrow(() -> new UserNotFoundException(userId));
     }
 
+    /**
+     * AI 선화 가이드처럼 "아직 작업 중인 방에서, 멤버가" 하는 일에 쓰는 진입점.
+     * 임시 저장(saveCanvas)과 같은 조건이라 판정을 한 곳에 모아둔다 — 한쪽만 고치면
+     * 발행이 끝난 방에 가이드만 계속 생성되는 식으로 어긋난다.
+     */
+    @Transactional(readOnly = true)
+    public void requireEditableMember(Long userId, Long roomId) {
+        DrawingRoom room = getRoomOrThrow(roomId);
+        requireMember(roomId, userId);
+
+        if (room.getStatus() == RoomStatus.FINISHED) {
+            throw new RoomAlreadyFinishedException(roomId);
+        }
+    }
+
     private void requireMember(Long roomId, Long userId) {
         if (!roomMemberRepository.existsByRoomIdAndUserId(roomId, userId)) {
             throw new NotRoomMemberException(roomId);

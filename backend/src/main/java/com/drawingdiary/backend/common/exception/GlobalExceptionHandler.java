@@ -1,5 +1,8 @@
 package com.drawingdiary.backend.common.exception;
 
+import com.drawingdiary.backend.domain.ai.exception.AiServerException;
+import com.drawingdiary.backend.domain.ai.exception.AllGuidesFailedException;
+import com.drawingdiary.backend.domain.ai.exception.FinalImageMissingException;
 import com.drawingdiary.backend.domain.aiscore.exception.AiScoreNotFoundException;
 import com.drawingdiary.backend.domain.auth.exception.AuthTokenException;
 import com.drawingdiary.backend.domain.auth.exception.DuplicateEmailException;
@@ -201,6 +204,26 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AiScoreNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleAiScoreNotFound(AiScoreNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(e.getMessage()));
+    }
+
+    /**
+     * 502. 우리 잘못이 아니라 뒤에 있는 AI 서버가 응답을 못 준 것이라 5xx이되 500은 아니다.
+     * 원인(TIMEOUT / UNAVAILABLE / BAD_REQUEST / INVALID_RESPONSE)이 메시지에 들어 있어
+     * 프론트가 "잠시 후 다시" 안내와 "문의" 안내를 구분할 수 있다.
+     */
+    @ExceptionHandler(AiServerException.class)
+    public ResponseEntity<ErrorResponse> handleAiServer(AiServerException e) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(AllGuidesFailedException.class)
+    public ResponseEntity<ErrorResponse> handleAllGuidesFailed(AllGuidesFailedException e) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(FinalImageMissingException.class)
+    public ResponseEntity<ErrorResponse> handleFinalImageMissing(FinalImageMissingException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(e.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

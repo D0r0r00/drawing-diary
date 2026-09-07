@@ -80,6 +80,13 @@ public class AiScore {
     }
 
     /**
+     * AI 서버가 점수와 함께 주는 평가 코멘트. 점수 계산에는 쓰이지 않고 기록으로만 남는다.
+     */
+    public void applyFeedback(String feedback) {
+        this.aiComment = feedback;
+    }
+
+    /**
      * 좋아요만 변했을 때. AI 점수는 그대로 두고 총점만 다시 계산한다.
      */
     public void applyLikeScore(int likeScore) {

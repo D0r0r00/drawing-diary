@@ -80,6 +80,19 @@ public class AiScoreService {
     }
 
     /**
+     * AI 자동 산정이 함께 받아온 평가 코멘트를 기록한다. 점수 저장 응답 형식은 수동 저장과
+     * 같게 유지해야 해서(프론트 계약) 응답에는 넣지 않고 ai_comment 컬럼에만 남긴다.
+     * 코멘트가 비어 있으면 기존 값을 지우지 않고 그대로 둔다.
+     */
+    @Transactional
+    public void saveFeedback(Long diaryId, String feedback) {
+        if (feedback == null || feedback.isBlank()) {
+            return;
+        }
+        aiScoreRepository.findByDiaryId(diaryId).ifPresent(score -> score.applyFeedback(feedback));
+    }
+
+    /**
      * 좋아요가 실제로 늘거나 줄었을 때만 부른다. 점수가 아직 없는 일기는 랭킹에 없으므로
      * 아무것도 하지 않는다 — 좋아요만으로 점수 행이 생기면 AI 점수가 0인 일기가 랭킹에 섞인다.
      */

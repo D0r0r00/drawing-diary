@@ -33,6 +33,15 @@ server:
   # 이게 없으면 업로드 응답의 이미지 URL이 http://내부주소 로 만들어져 브라우저가 막는다.
   forward-headers-strategy: framework
 
+ai:
+  server:
+    # 로컬에서 AI 서버를 띄웠다면 AI_SERVER_URL=http://localhost:8000 으로 바꿔 붙는다.
+    url: ${AI_SERVER_URL:https://drawing-diary.onrender.com}
+    connect-timeout: 10s
+    # Render 무료 티어는 유휴 상태에서 깨어나는 데만 수십 초가 걸린다(실측 52초).
+    # 짧게 잡으면 첫 사용자가 항상 타임아웃을 본다.
+    read-timeout: 120s
+
 jwt:
   secret: ${JWT_SECRET:}
   access-token-expiration-ms: 3600000
