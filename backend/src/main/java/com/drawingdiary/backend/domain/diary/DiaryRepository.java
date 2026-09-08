@@ -97,6 +97,44 @@ public interface DiaryRepository extends JpaRepository<Diary, Long> {
     );
 
     /**
+     * 홈 화면 랜덤 추천이 뽑는 PUBLIC 일기 id. 정렬만 다를 뿐 대상 집합은
+     * findByVisibilityBefore와 같다(PUBLIC 전체).
+     *
+     * <h4>왜 엔티티가 아니라 id인가</h4>
+     * JPQL에는 표준 random 함수가 없어 네이티브 SQL이어야 하는데, 네이티브로 Diary를 그대로
+     * 받으면 category가 지연 로딩이라 카드마다 조회가 한 번씩 더 나간다(N+1). id만 먼저 뽑고
+     * findWithCategoryByIds로 한 번에 채우면 건수와 무관하게 쿼리 두 번으로 끝난다.
+     *
+     * <h4>⚠️ ORDER BY RANDOM()의 비용</h4>
+     * 조건에 맞는 행 <b>전체</b>에 난수를 매겨 정렬한 뒤 앞에서 자르므로, 인덱스가 있어도
+     * 매번 풀 스캔이다. 지금 규모(수천 건)에서는 체감되지 않지만 일기가 수십만 건이 되면
+     * 눈에 띄게 느려진다. 그 시점에는 TABLESAMPLE이나 난수 키 컬럼처럼 전체를 훑지 않는
+     * 방식으로 갈아타야 한다.
+     */
+    @Query(value = """
+            select d.diary_id from diaries d
+            where d.visibility = :visibility
+            order by random()
+            """, nativeQuery = true)
+    List<Long> findRandomIdsByVisibility(
+            @Param("visibility") String visibility,
+            Pageable pageable
+    );
+
+    /**
+     * 랜덤 추천이 id 목록을 카드로 바꿀 때 쓴다. 목록 경로들과 같은 fetch join이라
+     * categoryId·categoryName을 읽어도 추가 쿼리가 나가지 않는다.
+     *
+     * in 절은 순서를 보장하지 않으므로, 뽑은 순서를 지켜야 하는 호출자가 직접 재정렬한다.
+     */
+    @Query("""
+            select d from Diary d
+            left join fetch d.category
+            where d.id in :ids
+            """)
+    List<Diary> findWithCategoryByIds(@Param("ids") List<Long> ids);
+
+    /**
      * 카테고리 삭제 전에 참조를 끊는다. diaries.category_id에 ON DELETE SET NULL이 없어서
      * 이 단계를 건너뛰면 FK 위반이 난다.
      *

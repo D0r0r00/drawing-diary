@@ -43,6 +43,17 @@ public class FeedController {
         return ResponseEntity.ok(diaryService.findExplore(cursor, limit));
     }
 
+    /**
+     * 홈 화면 카드 섹션용. 무한스크롤이 아니라 "새로고침하면 다른 추천"이라 커서를 받지 않는다.
+     * 탐색과 같은 PUBLIC 집합에서 뽑으므로 여기서도 결과가 호출자에 따라 달라지지 않는다.
+     */
+    @GetMapping("/explore/random")
+    public ResponseEntity<List<FeedItemResponse>> exploreRandom(
+            @RequestParam(defaultValue = "10") int limit
+    ) {
+        return ResponseEntity.ok(diaryService.findRandomExplore(limit));
+    }
+
     private Long currentUserId(Authentication authentication) {
         return (Long) authentication.getPrincipal();
     }

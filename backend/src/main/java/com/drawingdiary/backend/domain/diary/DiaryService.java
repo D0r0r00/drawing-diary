@@ -27,6 +27,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -52,6 +54,12 @@ public class DiaryService {
      * limit을 그대로 믿으면 한 번의 요청으로 테이블 전체를 긁어갈 수 있어 상한을 둔다.
      */
     private static final int MAX_LIMIT = 50;
+
+    /**
+     * 랜덤 추천은 상한이 더 낮다. 홈 화면 카드 한 섹션에 들어갈 만큼만 필요하고, 크게 부르면
+     * 그만큼 ORDER BY RANDOM()의 정렬 대상이 늘어난다.
+     */
+    private static final int RANDOM_MAX_LIMIT = 20;
 
     /**
      * 둘러보기용 목록이라 PUBLIC만 내려간다. 작성자는 일기별로 다시 조회하지 않고
@@ -91,6 +99,34 @@ public class DiaryService {
     public List<FeedItemResponse> findExplore(Long cursor, int limit) {
         return toFeedItems(diaryRepository.findByVisibilityBefore(
                 Visibility.PUBLIC, cursorOrFirstPage(cursor), PageRequest.ofSize(pageSize(limit))));
+    }
+
+    /**
+     * 홈 화면 카드용 랜덤 추천 — findExplore와 대상(PUBLIC 전체)도 응답 형태(toFeedItems)도
+     * 같고 정렬만 무작위다. 페이지네이션이 없어 커서도 받지 않는다. 새로고침할 때마다 다른
+     * 조합이 나오는 게 목적이라, 호출 사이의 중복·누락은 애초에 따지지 않는다.
+     *
+     * 뽑은 id 순서(= 무작위 순서)를 그대로 응답 순서로 쓴다. findWithCategoryByIds의 in 절은
+     * 순서를 보장하지 않으므로 여기서 다시 세운다. 사이에 삭제된 일기는 map에서 빠지는데,
+     * 있는 만큼만 내려가면 되는 화면이라 그 자리를 메우지 않고 걸러낸다.
+     */
+    @Transactional(readOnly = true)
+    public List<FeedItemResponse> findRandomExplore(int limit) {
+        List<Long> randomIds = diaryRepository.findRandomIdsByVisibility(
+                Visibility.PUBLIC.name(), PageRequest.ofSize(pageSize(limit, RANDOM_MAX_LIMIT)));
+
+        // 빈 IN 절은 DB마다 처리가 갈리므로 findFeed와 같은 이유로 쿼리를 건너뛴다.
+        if (randomIds.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, Diary> byId = diaryRepository.findWithCategoryByIds(randomIds).stream()
+                .collect(Collectors.toMap(Diary::getId, Function.identity()));
+
+        return toFeedItems(randomIds.stream()
+                .map(byId::get)
+                .filter(Objects::nonNull)
+                .toList());
     }
 
     /**
@@ -274,10 +310,14 @@ public class DiaryService {
      * 반복 호출하는 경로라, 값 하나 때문에 화면이 비는 것보다 기본값으로 굴러가는 편이 낫다.
      */
     private int pageSize(int limit) {
+        return pageSize(limit, MAX_LIMIT);
+    }
+
+    private int pageSize(int limit, int maxLimit) {
         if (limit < 1) {
             return DEFAULT_LIMIT;
         }
-        return Math.min(limit, MAX_LIMIT);
+        return Math.min(limit, maxLimit);
     }
 
     /**
