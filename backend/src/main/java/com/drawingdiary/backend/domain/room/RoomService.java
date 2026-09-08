@@ -26,6 +26,7 @@ import com.drawingdiary.backend.domain.room.exception.RoomAlreadyFinishedExcepti
 import com.drawingdiary.backend.domain.room.exception.RoomInviteNotFoundException;
 import com.drawingdiary.backend.domain.room.exception.RoomNotFoundException;
 import com.drawingdiary.backend.domain.room.exception.RoomSubmitContentMissingException;
+import com.drawingdiary.backend.domain.tag.TagService;
 import com.drawingdiary.backend.domain.user.User;
 import com.drawingdiary.backend.domain.user.UserRepository;
 import com.drawingdiary.backend.domain.user.exception.UserNotFoundException;
@@ -49,6 +50,7 @@ public class RoomService {
     private final CategoryRepository categoryRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
+    private final TagService tagService;
 
     /**
      * The owner is written into room_members as well as drawing_rooms.owner_id so
@@ -224,6 +226,10 @@ public class RoomService {
                         .build())
                 .toList();
         diaryCollaboratorRepository.saveAll(collaborators);
+
+        // 태그는 이름으로 받아 없으면 그때 만든다. 수정 경로(PATCH /api/diaries/{id})와 같은
+        // TagService를 타므로 정규화·상한 규칙이 발행과 수정에서 어긋나지 않는다.
+        tagService.replaceTags(diary, request.tags());
 
         room.changeStatus(RoomStatus.FINISHED);
 

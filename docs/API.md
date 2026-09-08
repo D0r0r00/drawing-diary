@@ -1,5 +1,25 @@
 # API 명세서
 
+> ### 최근 변경 (AI feedback 노출 + 태그)
+>
+> | 변경 | 내용 |
+> |---|---|
+> | 추가 | AI 점수 3종 응답에 **`feedback`** 필드 (`ai_scores.ai_comment`. 비어 있으면 null) |
+> | 신설 | `GET /api/tags/search?q=` — 태그 부분 일치 검색 |
+> | 확대 | `POST /api/rooms/{roomId}/submit`이 **`tags`**(태그 이름 배열)를 받음 |
+> | 확대 | `PATCH /api/diaries/{diaryId}`가 **`tags`** 로 태그를 교체 |
+> | 추가 | `GET /api/diaries/{id}`·피드·탐색·랜덤 추천 응답에 **`tags`** 배열 |
+>
+> **Breaking change 없음.** 전부 추가 필드이고 기존 필드는 그대로입니다. 태그를 쓰지 않는
+> 화면은 아무것도 고치지 않아도 되고, 기존 일기는 `tags`가 **빈 배열 `[]`** 로 내려옵니다.
+>
+> ⚠️ 태그를 붙이는 API는 **따로 없습니다.** 태그는 발행·수정 요청에 이름 배열로 실어 보내면
+> 없는 이름이 자동으로 만들어집니다(id가 아니라 **이름**을 보냅니다). 자세한 규칙은
+> [Tag](#tag) 참고.
+>
+> <details>
+> <summary>이전 변경 (홈 화면 랜덤 추천)</summary>
+>
 > ### 최근 변경 (홈 화면 랜덤 추천)
 >
 > | 변경 | 내용 |
@@ -74,6 +94,8 @@
 > deprecated 필드는 프론트 마이그레이션이 끝난 뒤 제거할 예정입니다. 제거 시점은 프론트와 합의 후 결정.
 >
 > ⚠️ **`PATCH /api/diaries/{id}`의 요청 바디는 아직 `textContent`입니다** (`content` 아님). 응답만 이름을 맞췄고 요청은 건드리지 않았는데, 요청 필드를 바꾸면 옛 이름으로 보내던 클라이언트의 수정이 **조용히 무시**되기 때문입니다(부분 수정이라 모르는 필드는 "안 바꿈"으로 처리됨). 요청 쪽도 통일이 필요하면 별도로 요청해 주세요.
+>
+> </details>
 >
 > </details>
 >
@@ -305,17 +327,18 @@ API 호출 → 401 + code=TOKEN_EXPIRED
 
 ### 일기 최종 발행
 - POST /api/rooms/{roomId}/submit
-- Body: { title, content, finalImg, visibility, categoryId, canvasData }
+- Body: { title, content, finalImg, visibility, categoryId, canvasData, tags }
   - `visibility`만 필수(`PUBLIC` | `FOLLOWERS_ONLY` | `PRIVATE`)
   - `title`(100자 이하) · `content` · `canvasData`는 **선택**. 생략하면 임시 저장해둔 방의 값이 사용됨
   - `finalImg`는 선택(500자 이하) — `POST /api/images`가 돌려준 URL을 넣으면 됨
   - `categoryId`는 null 허용
+  - `tags`는 선택. **태그 이름의 배열**(`["오운완","일상"]`)이며 id가 아님. 없는 이름은 이때 자동 생성됨. 생략하면 태그 없이 발행. 규칙은 [Tag](#tag) 참고
 - Response 200: { diaryId }
-- 400: 요청에도 방에도 `title` 또는 `content`가 없는 경우, 또는 형식 오류(빈 문자열, 길이 초과, `canvasData`가 Base64가 아님)
+- 400: 요청에도 방에도 `title` 또는 `content`가 없는 경우, 또는 형식 오류(빈 문자열, 길이 초과, `canvasData`가 Base64가 아님, 태그 50자 초과·11개 이상)
 - 403: 방 멤버가 아닌 경우
 - 404: 방이 없거나, `categoryId`에 해당하는 카테고리가 없는 경우
 - 409: 이미 `FINISHED`인 방에 다시 발행을 요청한 경우
-- 동작: ① 값 결정(요청에 있으면 그것, 없으면 방의 임시 저장값) ② 일기 생성(방과 연결) ③ 발행 시점의 방 멤버 전원을 일기 협업자로 복사 ④ 방 상태를 `FINISHED`로 변경
+- 동작: ① 값 결정(요청에 있으면 그것, 없으면 방의 임시 저장값) ② 일기 생성(방과 연결) ③ 발행 시점의 방 멤버 전원을 일기 협업자로 복사 ④ 태그 연결(없는 이름은 생성) ⑤ 방 상태를 `FINISHED`로 변경
 - 협업자는 **발행 시점 기준으로 고정**됨. 발행 후 방을 나가더라도 이미 만들어진 일기의 협업자 목록은 바뀌지 않음.
 - 임시 저장해둔 `canvasData`는 일기로 복사되어 `GET /api/diaries/{id}`의 `canvasData`로 조회됨.
 
@@ -362,7 +385,7 @@ psql "$DATABASE_URL" -v target_user_id=2 -f infra/seed-dummy-diaries.sql
 홈 화면용 목록 세 개. 셋 다 인증이 필요하고 **응답 형식(카드)이 같다**.
 페이지네이션 규칙은 앞의 둘(`/api/feed`·`/api/explore`)만 공유한다 — [랜덤 추천](#랜덤-추천-홈-화면-카드)은 페이지네이션이 없다.
 
-**공통 Response 200**: `[{ id, title, content, thumbnailUrl, createdAt, categoryId, categoryName, user: { userId, nickname, profileImageUrl }, diaryId, img }]`
+**공통 Response 200**: `[{ id, title, content, thumbnailUrl, createdAt, categoryId, categoryName, user: { userId, nickname, profileImageUrl }, tags, diaryId, img }]`
 ```json
 {
   "id": 83,
@@ -373,6 +396,7 @@ psql "$DATABASE_URL" -v target_user_id=2 -f infra/seed-dummy-diaries.sql
   "categoryId": 4,
   "categoryName": "맛집 탐방",
   "user": { "userId": 92, "nickname": "someone", "profileImageUrl": null },
+  "tags": [{ "tagId": 3, "name": "맛집" }, { "tagId": 7, "name": "주말" }],
   "diaryId": 83,
   "img": "https://picsum.photos/seed/withcat/800/600"
 }
@@ -381,6 +405,7 @@ psql "$DATABASE_URL" -v target_user_id=2 -f infra/seed-dummy-diaries.sql
 - `content`는 일기 본문 **전체**(요약·자르기 없음).
 - `categoryId`/`categoryName`은 분류가 없으면 **둘 다 null**.
 - `user`는 **작성자**(= 협업자 중 가장 먼저 등록된 사람 = 방장). 프로필 이미지를 설정하지 않았으면 `profileImageUrl`은 null.
+- `tags`는 카드에 표시할 태그. 태그가 없으면 null이 아니라 **빈 배열 `[]`**(기존 일기는 전부 `[]`). 상세 조회와 같은 값·같은 순서다.
 - 페이지 정보를 감싸는 객체 없이 **배열이 그대로** 내려감.
 - ⚠️ `diaryId`와 `img`는 **deprecated**. 각각 `id`·`thumbnailUrl`과 같은 값이며 기존 프론트 호환용으로만 남겨둠. 새 화면은 `id`/`thumbnailUrl`을 쓸 것.
 
@@ -458,8 +483,9 @@ psql "$DATABASE_URL" -v target_user_id=2 -f infra/seed-dummy-diaries.sql
 > 전체를 훑지 않는 방식으로 갈아타야 한다.
 > **응답 형식을 바꾸지 않고 내부만 교체할 수 있으므로 프론트가 지금 대비할 것은 없다.**
 
-> **쿼리 수**: 요청 1건당 SQL **3회 고정**(랜덤 id 추출 → 일기+카테고리 → 작성자)으로 `limit`과 무관하다.
-> `/api/explore`(2회)보다 한 번 많은 건 id를 먼저 뽑기 때문이고, 건수가 늘어도 함께 늘지 않는다.
+> **쿼리 수**: 요청 1건당 SQL **4회 고정**(랜덤 id 추출 → 일기+카테고리 → 작성자 → 태그)으로
+> `limit`과 무관하다. `/api/explore`(3회)보다 한 번 많은 건 id를 먼저 뽑기 때문이고,
+> 건수가 늘어도 함께 늘지 않는다. (태그 응답이 붙기 전에는 각각 3회·2회였다.)
 
 ## Diary
 일기 **생성 API는 없음**. 일기는 `POST /api/rooms/{roomId}/submit`(방 발행)으로만 만들어지고, 그때 방 멤버 전원이 협업자로 등록됨. 아래 API에서 "협업자"는 `diary_collaborators`에 포함된 사람을 뜻함.
@@ -485,7 +511,7 @@ psql "$DATABASE_URL" -v target_user_id=2 -f infra/seed-dummy-diaries.sql
 
 ### 일기 상세 조회
 - GET /api/diaries/{diaryId}
-- Response 200: { id, title, content, thumbnailUrl, imageUrl, createdAt, categoryId, categoryName, visibility, canvasData, textContent }
+- Response 200: { id, title, content, thumbnailUrl, imageUrl, createdAt, categoryId, categoryName, visibility, canvasData, tags, textContent }
 ```json
 {
   "id": 83,
@@ -498,6 +524,7 @@ psql "$DATABASE_URL" -v target_user_id=2 -f infra/seed-dummy-diaries.sql
   "categoryName": "맛집 탐방",
   "visibility": "PUBLIC",
   "canvasData": null,
+  "tags": [{ "tagId": 3, "name": "맛집" }, { "tagId": 7, "name": "주말" }],
   "textContent": "분류가 붙은 일기 본문"
 }
 ```
@@ -505,6 +532,7 @@ psql "$DATABASE_URL" -v target_user_id=2 -f infra/seed-dummy-diaries.sql
   - `thumbnailUrl`과 `imageUrl`은 **둘 다 `final_img_url`**이라 현재 항상 같은 값. 목록 카드와 상세 화면이 같은 컴포넌트를 공유할 수 있도록 두 이름으로 함께 내려감. 원본/축소본을 따로 저장하게 되면 그때 갈라짐.
   - `categoryId`/`categoryName`은 `diaries.category_id`가 없으면 **둘 다 null**. 있으면 `categories`를 조인해 이름까지 채워짐.
   - `canvasData`는 BYTEA라 **Base64 문자열로 인코딩**해서 내려감. 저장된 값이 없으면 null.
+  - `tags`는 일기에 달린 태그. 태그가 없으면 null이 아니라 **빈 배열 `[]`**. 정렬은 태그 이름순이라 같은 일기를 다시 조회해도 순서가 흔들리지 않음.
 - 403: 아래 공개 범위별 조건을 만족하지 못한 경우
 - 404: 일기가 없거나 이미 삭제된 경우
 
@@ -525,12 +553,24 @@ psql "$DATABASE_URL" -v target_user_id=2 -f infra/seed-dummy-diaries.sql
 
 ### 일기 수정
 - PATCH /api/diaries/{diaryId}
-- Body: { title, textContent, visibility } — **셋 다 선택**. 보내지 않거나 null인 필드는 기존 값을 유지(부분 수정).
-- Response 200: { id, title, updatedAt }
-- 400: `title`이 빈 문자열이거나 100자 초과, `textContent`가 빈 문자열, `visibility`가 정의되지 않은 값인 경우
+- Body: { title, textContent, visibility, tags } — **넷 다 선택**. 보내지 않거나 null인 필드는 기존 값을 유지(부분 수정).
+- Response 200: { id, title, updatedAt, tags }
+- 400: `title`이 빈 문자열이거나 100자 초과, `textContent`가 빈 문자열, `visibility`가 정의되지 않은 값, 태그가 50자 초과이거나 11개 이상인 경우
 - 403: 협업자가 아닌 경우
 - 404: 일기가 없거나 이미 삭제된 경우
 - 협업자면 누구나 수정 가능(방장 전용 아님). 빈 body `{}`를 보내면 아무것도 바뀌지 않고 200 — 이때는 `updatedAt`도 갱신되지 않음.
+
+**`tags` 규칙 (다른 필드와 같은 "null = 안 바꿈")**
+
+| 보낸 값 | 결과 |
+|---|---|
+| 필드 생략 또는 `null` | 태그를 **건드리지 않음**(기존 유지) |
+| `["a","b"]` | 기존 태그를 버리고 **통째로 교체**(추가가 아님) |
+| `[]` | 태그를 **전부 제거** |
+
+- 응답의 `tags`는 **수정 후 현재 값 전체**다. 태그를 보내지 않아 그대로 둔 경우에도 현재 값이 내려오므로, 프론트는 응답만 보고 화면을 다시 그리면 된다.
+- 태그만 바꾸는 요청도 유효하다. 다만 `diaries` 행이 그대로라 이때는 **`updatedAt`이 갱신되지 않는다.**
+- 태그 이름 규칙(자동 생성·중복 처리·상한)은 [Tag](#tag)와 완전히 동일하다 — 발행과 수정이 같은 로직을 탄다.
 
 ### 일기 삭제
 - DELETE /api/diaries/{diaryId}
@@ -568,6 +608,73 @@ psql "$DATABASE_URL" -v target_user_id=2 -f infra/seed-dummy-diaries.sql
 ### 협업자 삭제
 - DELETE /api/diaries/{diaryId}/participants/{userId}
 - Response: { message }
+
+## Tag
+태그는 **전역 사전**이다. `tags`에 이름이 유일하게 한 번만 존재하고, 어떤 일기가 그 태그를
+쓰는지는 `diary_tags`가 들고 있다. 사용자별 태그가 아니므로 남이 만든 태그도 그대로 검색되고
+재사용된다(사용자별로 나뉘는 [Category](#category)와 다른 점).
+
+**태그를 만들거나 붙이는 전용 API는 없다.** 일기를 발행하거나 수정할 때 이름 배열을 실어
+보내면 없는 이름이 그때 만들어지고 일기에 연결된다.
+
+| 하고 싶은 것 | 쓰는 API |
+|---|---|
+| 태그 검색(자동완성) | `GET /api/tags/search?q=` |
+| 발행하면서 태그 달기 | [`POST /api/rooms/{roomId}/submit`](#일기-최종-발행)의 `tags` |
+| 나중에 태그 바꾸기·지우기 | [`PATCH /api/diaries/{diaryId}`](#일기-수정)의 `tags` |
+| 일기에 달린 태그 보기 | [`GET /api/diaries/{diaryId}`](#일기-상세-조회)·피드·탐색·랜덤 추천의 `tags` |
+
+### 태그 검색
+- GET /api/tags/search?q={keyword}
+- 인증 필요
+- Response 200: `[{ tagId, name }]`
+```json
+[{ "tagId": 3, "name": "Cat" }, { "tagId": 12, "name": "고양이" }]
+```
+- **부분 일치**(앞뒤 어디에 있어도 매치) · **대소문자 무시**. `q=cat`과 `q=CAT`은 같은 결과.
+- `q`가 없거나 공백뿐이면 **빈 배열 `[]`**. 400이 아니다 — 입력창이 비어 있을 때도 자동완성이
+  그대로 호출되는 경로라 "아직 검색어가 없음"은 오류가 아니다. 대신 여기서 전체 태그를
+  뿌리지 않는다.
+- 결과는 이름순 정렬, **최대 20건**. 자동완성 한 화면에 들어갈 만큼만 내려간다(페이지네이션 없음).
+- `%`, `_` 같은 LIKE 와일드카드는 **문자 그대로** 검색된다. `q=%`는 전체가 아니라 이름에 `%`가
+  들어간 태그만 찾는다.
+
+### 태그 이름 규칙
+발행(`submit`)과 수정(`PATCH`)이 **완전히 같은 규칙**을 쓴다.
+
+- 보내는 것은 **이름 배열**이다: `{ "tags": ["오운완", "일상"] }`. `tagId`가 아니다.
+- 없는 이름이면 **자동 생성**된다. 태그를 미리 만들어둘 필요가 없다.
+- **대소문자를 무시해 같은 태그로 묶인다.** 이미 `Cat`이 있는데 `cat`을 보내면 새 태그가
+  생기지 않고 기존 `Cat`에 연결된다(응답에도 저장된 철자인 `Cat`이 내려온다). 이 판정이
+  없으면 사실상 같은 태그가 철자만 다른 행으로 늘어난다.
+- 앞뒤 공백은 제거된다. `"  일상  "`과 `"일상"`은 같은 태그다.
+- 빈 문자열·공백뿐인 항목과 한 요청 안의 중복은 **조용히 버려진다**. 입력창을 쉼표로 쪼개면
+  빈 칸이 딸려오기 쉬운데 그것 때문에 발행이 막히면 원인을 알기 어렵기 때문이다.
+- **50자 초과 → 400**, **일기당 11개 이상 → 400**. 이쪽은 조용히 자르지 않는다 — 사용자가
+  실제로 입력한 내용이 사라지는 것이라 알려주는 편이 맞다.
+
+```json
+// 요청
+{ "tags": ["  오운완  ", "오운완", "", "Cat", "cat"] }
+// 실제로 달리는 태그 (공백 제거 · 중복 제거 · 기존 Cat 재사용)
+[{ "tagId": 1, "name": "Cat" }, { "tagId": 5, "name": "오운완" }]
+```
+
+### 태그와 일기의 수명
+- 일기를 삭제하면 그 일기의 `diary_tags` 연결은 **함께 삭제**된다([일기 삭제](#일기-삭제) 참고).
+- 그러나 **`tags` 사전의 행은 남는다.** 다른 일기가 같은 태그를 쓰고 있을 수 있고, 아무도 쓰지
+  않는 태그가 남아도 검색 결과에 뜰 뿐 문제가 되지 않는다. 즉 "검색에는 나오는데 그 태그가
+  달린 일기는 0건"인 상태가 정상적으로 존재할 수 있다.
+
+> **왜 `POST/DELETE /api/diaries/{id}/tags` 같은 전용 API가 없나**
+>
+> 태그는 댓글·좋아요처럼 사용자가 남기는 별개의 상호작용이 아니라 제목·공개범위·카테고리와
+> 같은 **일기의 속성**이다. 그래서 일기를 만드는 자리(발행)와 일기를 고치는 자리(수정)에
+> 얹었다. 전용 엔드포인트를 따로 두면 "발행 직후 태그를 달려면 두 번 호출"이 되고, 태그만
+> 부분 추가·삭제하는 별도 규칙이 생겨 수정 API와 의미가 갈린다.
+>
+> 대신 `PATCH`의 `tags`는 **부분 추가가 아니라 교체**다. 태그 하나를 떼려면 남길 목록 전체를
+> 보내야 하는데, 일기당 10개 상한이라 클라이언트가 현재 목록을 들고 있으면 그대로 보내면 된다.
 
 ## Category
 일기를 분류하는 사용자별 태그. 카테고리는 **만든 사람에게만 보이고**, 이름은 사용자 안에서만 유일하다(`UNIQUE(user_id, name)`) — 다른 사용자가 같은 이름을 쓰는 것은 자유롭다.
@@ -840,11 +947,50 @@ AI 서버는 응답 헤더에 `Content-Type: image/png`를 붙이지만 **실제
 `image/jpeg`로 서빙된다. (헤더를 그대로 믿으면 `X-Content-Type-Options: nosniff` 때문에
 브라우저가 JPEG를 PNG로 디코딩하려다 실패해 그림이 깨진다.)
 
+### AI 점수 저장
+- POST /api/diaries/{diaryId}/scores
+- 인증 필요
+- Body: `{ relevanceScore, colorScore }` — 둘 다 필수, 각각 0~100 정수
+  - 좋아요 점수와 총점은 **백엔드가 계산**하므로 요청에 넣어도 무시된다(필드 자체가 없다)
+- Response 200: `{ diaryId, relevanceScore, colorScore, likeScore, totalScore, feedback }`
+```json
+{
+  "diaryId": 83,
+  "relevanceScore": 95,
+  "colorScore": 92,
+  "likeScore": 0,
+  "totalScore": 75,
+  "feedback": "일기에 기술된 부드러운 그라데이션 배경이 그림에 매우 잘 표현되어 있습니다."
+}
+```
+- 재호출하면 **갱신**이다(일기와 1:1). 새 자원이 생기는 게 아니라서 201이 아니라 200.
+- 400: 점수 누락 또는 0~100 범위를 벗어난 값
+- 403: 그 일기를 볼 수 없는 경우(조회 권한과 같은 판정)
+- 404: 없는 diaryId
+- ⚠️ **`feedback`은 이 요청으로 저장할 수 없다.** Body에 코멘트 필드가 없고, 수동 저장은
+  **기존 `ai_comment`를 그대로 유지**한다 — 점수를 다시 매겼다고 AI가 남긴 코멘트를 지울
+  이유가 없기 때문이다. 아직 AI 산정을 돌린 적이 없으면 `feedback`은 null로 내려온다.
+
+### AI 점수 조회
+- GET /api/diaries/{diaryId}/scores
+- 인증 필요
+- Response 200: 저장과 **같은 형식**(`feedback` 포함)
+- 403: 그 일기를 볼 수 없는 경우
+- 404: 없는 diaryId, 또는 아직 점수가 저장되지 않은 일기
+- `likeScore`는 저장된 값이 아니라 **조회 시점의 좋아요 수**로 계산해서 내려간다.
+
+#### `feedback` 필드
+- 출처는 `ai_scores.ai_comment` — [AI 점수 자동 산정](#ai-점수-자동-산정)이 AI 서버에서 함께 받아 저장한 평가 코멘트다.
+- **점수 계산에는 들어가지 않는다.** 랭킹·총점과 무관한 표시용 기록이다.
+- 컬럼이 NULL이든 빈 문자열이든 응답에서는 **항상 null**로 맞춰 내려간다. 프론트는 `feedback == null` 한 가지만 보고 "코멘트 없음"을 판정하면 된다.
+- 세 경로(`POST .../scores`, `GET .../scores`, `POST .../ai-score`)의 응답 형식이 같으므로 같은 코드로 처리하면 된다.
+
 ### AI 점수 자동 산정
 - POST /api/diaries/{diaryId}/ai-score
 - 인증 필요, **Body 없음**
-- Response 200: `{ diaryId, relevanceScore, colorScore, likeScore, totalScore }`
+- Response 200: `{ diaryId, relevanceScore, colorScore, likeScore, totalScore, feedback }`
   — [AI 점수 저장](#ai-점수-저장)과 **완전히 같은 형식**이라 프론트는 두 경로를 같은 코드로 처리하면 된다
+  - `feedback`은 이번 호출에서 AI 서버가 준 평가 코멘트다. AI가 코멘트를 비워 보내면 직전 값이 유지되고, 그것도 없으면 null
 - 400: 일기에 `final_img_url`이 없는 경우(평가할 이미지가 없음)
 - 403: 해당 일기의 **협업자가 아닌** 경우 — 점수는 일기에 남는 기록이라 볼 수만 있는 사람은 매길 수 없다
 - 404: 없는 diaryId
@@ -855,8 +1001,9 @@ AI 서버는 응답 헤더에 `Content-Type: image/png`를 붙이지만 **실제
 2. `final_img_url`이 `/api/images/{id}` 형태면 **DB에서 바이너리를 바로 꺼내고**(자기 자신에게
    HTTP 요청을 보내지 않는다), 외부 URL이면 다운로드한다(10MB 상한, png/jpeg/webp만)
 3. AI 서버 `POST /api/ai/score`에 multipart(`text` + `image`)로 보낸다
-4. 받은 점수를 [AI 점수 저장](#ai-점수-저장)과 **같은 로직**으로 저장한다 —
-   `likeScore`·`totalScore` 계산이 한 곳에만 있어 수동 저장과 어긋나지 않는다
+4. 받은 점수와 `feedback`을 [AI 점수 저장](#ai-점수-저장)과 **같은 로직·한 트랜잭션**으로
+   저장한다 — `likeScore`·`totalScore` 계산이 한 곳에만 있어 수동 저장과 어긋나지 않고,
+   점수만 저장되고 코멘트가 빠지는 중간 상태도 생기지 않는다
 
 이미 점수가 있으면 갱신된다(일기와 1:1). 좋아요 점수는 저장 시점의 좋아요 수로 다시 계산된다.
 
@@ -880,9 +1027,10 @@ AI 서버의 `/openapi.json`과 실호출로 확인한 결과다.
 - ✅ **`like_count` 같은 추가 파라미터는 요구하지 않는다.** 요청 파트는 `text`·`image`뿐이고,
   응답에도 좋아요 관련 값이 없다 — 좋아요 점수와 총점 계산은 백엔드 몫이 맞다
 
-`feedback`은 `ai_scores.ai_comment` 컬럼에 저장된다. **응답에는 넣지 않았다** — 수동 저장
-경로와 형식을 똑같이 유지하기로 한 계약 때문이다. 화면에 코멘트를 띄우려면 응답에 필드를
-추가하면 되고, 추가 필드라 기존 프론트는 깨지지 않는다.
+`feedback`은 `ai_scores.ai_comment` 컬럼에 저장되고, **이제 세 경로의 응답에 모두 포함된다**
+(`POST .../scores`, `GET .../scores`, `POST .../ai-score`). 수동 저장 경로와 형식을 똑같이
+유지하는 계약은 그대로다 — 세 응답이 함께 필드를 얻었기 때문이다. 자세한 동작은
+[`feedback` 필드](#feedback-필드) 참고.
 
 ## Ranking
 `ai_scores`가 있는 **PUBLIC** 일기만 대상. 비공개 일기는 점수가 있어도 랭킹에 나오지 않는다.

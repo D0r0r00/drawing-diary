@@ -30,6 +30,8 @@ import com.drawingdiary.backend.domain.room.exception.RoomAlreadyFinishedExcepti
 import com.drawingdiary.backend.domain.room.exception.RoomInviteNotFoundException;
 import com.drawingdiary.backend.domain.room.exception.RoomNotFoundException;
 import com.drawingdiary.backend.domain.room.exception.RoomSubmitContentMissingException;
+import com.drawingdiary.backend.domain.tag.exception.InvalidTagNameException;
+import com.drawingdiary.backend.domain.tag.exception.TooManyTagsException;
 import com.drawingdiary.backend.domain.user.exception.DuplicateNicknameException;
 import com.drawingdiary.backend.domain.user.exception.UserNotFoundException;
 import org.springframework.http.HttpStatus;
@@ -198,6 +200,16 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(RoomSubmitContentMissingException.class)
     public ResponseEntity<ErrorResponse> handleRoomSubmitContentMissing(RoomSubmitContentMissingException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidTagNameException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidTagName(InvalidTagNameException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(TooManyTagsException.class)
+    public ResponseEntity<ErrorResponse> handleTooManyTags(TooManyTagsException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(e.getMessage()));
     }
 

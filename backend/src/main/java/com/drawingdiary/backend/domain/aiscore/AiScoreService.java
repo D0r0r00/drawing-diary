@@ -42,6 +42,18 @@ public class AiScoreService {
      */
     @Transactional
     public AiScoreResponse save(Long userId, Long diaryId, AiScoreSaveRequest request) {
+        return save(userId, diaryId, request, null);
+    }
+
+    /**
+     * 점수와 평가 코멘트를 한 트랜잭션에서 저장한다. AI 자동 산정만 feedback을 넘기고,
+     * 수동 저장(POST .../scores)은 바디에 코멘트가 없으므로 null을 넘겨 <b>기존 값을 유지</b>한다
+     * — 수동으로 점수를 다시 매겼다고 AI가 남긴 코멘트를 지울 이유가 없다.
+     *
+     * @param feedback null이거나 공백이면 기존 ai_comment를 그대로 둔다.
+     */
+    @Transactional
+    public AiScoreResponse save(Long userId, Long diaryId, AiScoreSaveRequest request, String feedback) {
         // 볼 수 없는 일기에는 점수도 매길 수 없다. 좋아요와 같은 판정을 쓴다.
         Diary diary = diaryService.getReadableDiaryOrThrow(userId, diaryId);
 
@@ -58,10 +70,14 @@ public class AiScoreService {
                         .build()));
 
         score.applyAiScores(request.relevanceScore(), request.colorScore(), likeScore);
+        if (feedback != null && !feedback.isBlank()) {
+            score.applyFeedback(feedback);
+        }
         aiScoreRepository.flush();
 
         return new AiScoreResponse(
-                diaryId, score.getRelevanceScore(), score.getColorScore(), likeScore, score.getTotalScore());
+                diaryId, score.getRelevanceScore(), score.getColorScore(), likeScore, score.getTotalScore(),
+                feedbackOrNull(score.getAiComment()));
     }
 
     @Transactional(readOnly = true)
@@ -76,20 +92,8 @@ public class AiScoreService {
                 score.getRelevanceScore(),
                 score.getColorScore(),
                 ScoreCalculator.likeScore(likeRepository.countByDiaryId(diaryId)),
-                score.getTotalScore());
-    }
-
-    /**
-     * AI 자동 산정이 함께 받아온 평가 코멘트를 기록한다. 점수 저장 응답 형식은 수동 저장과
-     * 같게 유지해야 해서(프론트 계약) 응답에는 넣지 않고 ai_comment 컬럼에만 남긴다.
-     * 코멘트가 비어 있으면 기존 값을 지우지 않고 그대로 둔다.
-     */
-    @Transactional
-    public void saveFeedback(Long diaryId, String feedback) {
-        if (feedback == null || feedback.isBlank()) {
-            return;
-        }
-        aiScoreRepository.findByDiaryId(diaryId).ifPresent(score -> score.applyFeedback(feedback));
+                score.getTotalScore(),
+                feedbackOrNull(score.getAiComment()));
     }
 
     /**
@@ -145,6 +149,14 @@ public class AiScoreService {
         return aiScoreRepository.findMyRanking(userId).stream()
                 .map(row -> new MyRankingItemResponse(row.getDiaryId(), row.getRank(), row.getTotalScore()))
                 .toList();
+    }
+
+    /**
+     * ai_comment는 NULL일 수도, 빈 문자열일 수도 있다(AI 서버가 공백을 주는 경우).
+     * 프론트가 "코멘트 없음"을 한 가지 방식으로만 판정하도록 응답에서는 둘 다 null로 맞춘다.
+     */
+    private String feedbackOrNull(String aiComment) {
+        return aiComment == null || aiComment.isBlank() ? null : aiComment;
     }
 
     /**

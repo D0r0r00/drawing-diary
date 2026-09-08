@@ -17,6 +17,8 @@ import com.drawingdiary.backend.domain.diary.exception.NotDiaryCollaboratorExcep
 import com.drawingdiary.backend.domain.follow.FollowRepository;
 import com.drawingdiary.backend.domain.like.LikeRepository;
 import com.drawingdiary.backend.domain.tag.DiaryTagRepository;
+import com.drawingdiary.backend.domain.tag.TagService;
+import com.drawingdiary.backend.domain.tag.dto.TagResponse;
 import com.drawingdiary.backend.domain.user.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -42,6 +44,7 @@ public class DiaryService {
     private final LikeRepository likeRepository;
     private final AiScoreRepository aiScoreRepository;
     private final DiaryTagRepository diaryTagRepository;
+    private final TagService tagService;
 
     /**
      * 첫 페이지는 "가장 큰 id보다 작은 것"이므로 커서 없이 들어온 요청에 이 값을 쓴다.
@@ -191,6 +194,7 @@ public class DiaryService {
                 categoryName(diary),
                 diary.getVisibility(),
                 encodeCanvasData(diary.getCanvasData()),
+                tagService.findTags(diaryId),
                 diary.getContent()
         );
     }
@@ -202,11 +206,17 @@ public class DiaryService {
 
         diary.applyUpdate(request.title(), request.textContent(), request.visibility());
 
+        // 다른 필드와 같은 규칙: null은 "안 바꿈"이고, 빈 배열이면 전부 떼어낸다.
+        // 태그만 바꾸는 요청도 유효하지만, 그때는 diaries 행이 그대로라 updatedAt이 갱신되지 않는다.
+        List<TagResponse> tags = request.tags() == null
+                ? tagService.findTags(diaryId)
+                : tagService.replaceTags(diary, request.tags());
+
         // @UpdateTimestamp는 flush 시점에 채워지므로, 응답에 갱신된 값을 담으려면
         // 트랜잭션 커밋을 기다리지 않고 여기서 flush해야 한다.
         diaryRepository.flush();
 
-        return new DiaryUpdateResponse(diary.getId(), diary.getTitle(), diary.getUpdatedAt());
+        return new DiaryUpdateResponse(diary.getId(), diary.getTitle(), diary.getUpdatedAt(), tags);
     }
 
     /**
@@ -276,10 +286,13 @@ public class DiaryService {
     }
 
     /**
-     * 두 피드가 공유하는 변환. 목록 조회와 마찬가지로 작성자를 한 번에 가져와 메모리에서 묶는다.
+     * 세 목록 경로(팔로잉·탐색·랜덤 추천)가 공유하는 변환. 작성자와 태그를 각각 한 번에
+     * 가져와 메모리에서 묶는다 — 카드마다 조회하면 건수만큼 쿼리가 붙는 자리다.
      */
     private List<FeedItemResponse> toFeedItems(List<Diary> diaries) {
-        Map<Long, User> authors = findAuthors(diaries.stream().map(Diary::getId).toList());
+        List<Long> diaryIds = diaries.stream().map(Diary::getId).toList();
+        Map<Long, User> authors = findAuthors(diaryIds);
+        Map<Long, List<TagResponse>> tags = tagService.findTagsByDiaryIds(diaryIds);
 
         return diaries.stream()
                 .map(diary -> {
@@ -294,6 +307,7 @@ public class DiaryService {
                             categoryName(diary),
                             author == null ? null : new FeedUserResponse(
                                     author.getId(), author.getNickname(), author.getProfileImageUrl()),
+                            tags.getOrDefault(diary.getId(), List.of()),
                             diary.getId(),
                             diary.getFinalImgUrl()
                     );

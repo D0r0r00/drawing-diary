@@ -60,13 +60,11 @@ public class AiDiaryScoreService {
                 snapshot.content(), image.data(), image.contentType(), image.filename());
 
         // 응답 검증(필드 누락·범위)은 AiServerClient가 저장 전에 끝낸다.
-        AiScoreResponse saved = aiScoreService.save(userId, diaryId,
-                new AiScoreSaveRequest(result.relevanceScore(), result.colorScore()));
-
-        // AI 서버가 함께 주는 평가 코멘트. 응답 형식은 수동 저장과 같게 두고 DB에만 남긴다.
-        aiScoreService.saveFeedback(diaryId, result.feedback());
-
-        return saved;
+        // 평가 코멘트도 같이 넘겨 한 트랜잭션에서 저장한다 — 점수만 남고 코멘트가 빠지는
+        // 중간 상태가 없어야 응답의 feedback이 방금 저장한 값과 항상 일치한다.
+        return aiScoreService.save(userId, diaryId,
+                new AiScoreSaveRequest(result.relevanceScore(), result.colorScore()),
+                result.feedback());
     }
 
     /**
