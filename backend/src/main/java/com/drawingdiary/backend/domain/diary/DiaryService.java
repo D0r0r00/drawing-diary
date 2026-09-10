@@ -1,5 +1,6 @@
 package com.drawingdiary.backend.domain.diary;
 
+import com.drawingdiary.backend.config.TimeZoneProperties;
 import com.drawingdiary.backend.domain.aiscore.AiScoreRepository;
 import com.drawingdiary.backend.domain.category.Category;
 import com.drawingdiary.backend.domain.comment.CommentRepository;
@@ -49,6 +50,7 @@ public class DiaryService {
     private final AiScoreRepository aiScoreRepository;
     private final DiaryTagRepository diaryTagRepository;
     private final TagService tagService;
+    private final TimeZoneProperties timeZoneProperties;
 
     /**
      * 첫 페이지는 "가장 큰 id보다 작은 것"이므로 커서 없이 들어온 요청에 이 값을 쓴다.
@@ -213,18 +215,52 @@ public class DiaryService {
      *
      * 한 달치 작성 시각을 쿼리 한 번으로 받아 자바에서 날짜별로 묶는다. 개수가 0인 날은
      * 애초에 행이 없어 결과에서 빠진다(프론트가 빈 칸으로 그린다).
+     *
+     * <h4>날짜를 자르는 기준은 저장 시간대가 아니라 표시 시간대다</h4>
+     * created_at은 {@code app.time-zone.storage}(UTC) 기준으로 저장되는데, 그대로 잘라
+     * 내려주면 한국 사용자가 KST 새벽 0~9시에 쓴 일기가 <b>전날 칸</b>에 찍힌다. 잔디는
+     * 서버가 이미 날짜로 묶어 보내므로 프론트가 되돌릴 수 없어, 여기서 display 시간대로
+     * 옮긴 뒤 자른다.
+     *
+     * <p>조회 범위도 같은 기준이어야 한다. year·month는 <b>display 시간대의 달</b>을 뜻하므로
+     * (2026년 9월 = KST 9/1 00:00 ~ 9/30 24:00), 그 경계를 storage 시간대의 값으로 바꿔
+     * 쿼리에 넘긴다. 경계를 옮기지 않으면 월초·월말 9시간이 잘려 나가거나 남의 달이 섞인다.
+     *
+     * <p>createdAt을 가공 없이 내려주는 다른 경로(피드·상세)는 프론트가 로컬 시간대로
+     * 바꾸면 되므로 이 변환을 타지 않는다.
      */
     @Transactional(readOnly = true)
     public List<ActivityItemResponse> findActivity(Long requesterId, Long userId, YearMonth month) {
         Map<LocalDate, Long> byDate = diaryRepository.findVisibleCreatedAtByCollaborator(
-                        userId, requesterId, month.atDay(1).atStartOfDay(), month.plusMonths(1).atDay(1).atStartOfDay())
+                        userId, requesterId,
+                        toStorageTime(month.atDay(1)),
+                        toStorageTime(month.plusMonths(1).atDay(1)))
                 .stream()
-                .collect(Collectors.groupingBy(LocalDateTime::toLocalDate, Collectors.counting()));
+                .collect(Collectors.groupingBy(this::toDisplayDate, Collectors.counting()));
 
         return byDate.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .map(entry -> new ActivityItemResponse(entry.getKey(), entry.getValue()))
                 .toList();
+    }
+
+    /**
+     * display 시간대의 그 날 자정이 storage 시간대로는 몇 시인지.
+     * KST 9/1 00:00 → UTC 8/31 15:00.
+     */
+    private LocalDateTime toStorageTime(LocalDate displayDate) {
+        return displayDate.atStartOfDay(timeZoneProperties.display())
+                .withZoneSameInstant(timeZoneProperties.storage())
+                .toLocalDateTime();
+    }
+
+    /**
+     * 저장된 벽시계를 display 시간대의 날짜로. UTC 9/10 17:18 → KST 9/11.
+     */
+    private LocalDate toDisplayDate(LocalDateTime storedAt) {
+        return storedAt.atZone(timeZoneProperties.storage())
+                .withZoneSameInstant(timeZoneProperties.display())
+                .toLocalDate();
     }
 
     @Transactional(readOnly = true)

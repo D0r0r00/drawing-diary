@@ -33,6 +33,15 @@ server:
   # 이게 없으면 업로드 응답의 이미지 URL이 http://내부주소 로 만들어져 브라우저가 막는다.
   forward-headers-strategy: framework
 
+app:
+  time-zone:
+    # created_at에 적히는 벽시계의 기준. TimeZoneConfig가 JVM 기본 시간대를 이 값으로
+    # 고정하므로, 바꾸면 이미 저장된 값의 해석까지 달라진다(운영 중 변경 금지).
+    storage: ${APP_TIME_ZONE_STORAGE:UTC}
+    # 서버가 날짜 단위로 잘라 내려주는 화면(활동 잔디)이 쓰는 기준.
+    # 이것만 바꾸면 저장된 값은 그대로 두고 묶는 기준만 달라진다.
+    display: ${APP_TIME_ZONE_DISPLAY:Asia/Seoul}
+
 ai:
   server:
     # 로컬에서 AI 서버를 띄웠다면 AI_SERVER_URL=http://localhost:8000 으로 바꿔 붙는다.
