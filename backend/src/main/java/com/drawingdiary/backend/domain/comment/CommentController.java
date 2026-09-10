@@ -4,6 +4,8 @@ import com.drawingdiary.backend.domain.comment.dto.CommentCreateRequest;
 import com.drawingdiary.backend.domain.comment.dto.CommentCreateResponse;
 import com.drawingdiary.backend.domain.comment.dto.CommentDeleteResponse;
 import com.drawingdiary.backend.domain.comment.dto.CommentResponse;
+import com.drawingdiary.backend.domain.comment.dto.CommentUpdateRequest;
+import com.drawingdiary.backend.domain.comment.dto.CommentUpdateResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -11,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -43,6 +46,15 @@ public class CommentController {
     ) {
         CommentCreateResponse response = commentService.create(currentUserId(authentication), diaryId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PatchMapping("/comments/{commentId}")
+    public ResponseEntity<CommentUpdateResponse> update(
+            Authentication authentication,
+            @PathVariable Long commentId,
+            @Valid @RequestBody CommentUpdateRequest request
+    ) {
+        return ResponseEntity.ok(commentService.update(currentUserId(authentication), commentId, request));
     }
 
     @DeleteMapping("/comments/{commentId}")

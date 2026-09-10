@@ -112,7 +112,36 @@ public class AiScoreService {
      */
     @Transactional(readOnly = true)
     public List<RankingItemResponse> findRanking(int offset, int limit) {
-        List<AiScoreRepository.RankingRow> rows = aiScoreRepository.findRankingPage(pageSize(limit), offsetOrZero(offset));
+        return toRankingItems(
+                aiScoreRepository.findRankingPage(pageSize(limit), offsetOrZero(offset)),
+                offsetOrZero(offset));
+    }
+
+    /**
+     * 친구 랭킹 — 내가 팔로우하는 사람이 참여한 일기만. 전체 랭킹과 조회·조립·페이지네이션이
+     * 모두 같고 대상 집합만 좁다.
+     *
+     * <p><b>rank는 이 목록 안에서의 순위</b>다. 전체 랭킹에서 몇 위인지가 아니다
+     * (그건 findMyRanking). 이유는 RankingController.friendRanking 주석 참고.
+     */
+    @Transactional(readOnly = true)
+    public List<RankingItemResponse> findFriendRanking(Long userId, int offset, int limit) {
+        return toRankingItems(
+                aiScoreRepository.findFriendRankingPage(userId, pageSize(limit), offsetOrZero(offset)),
+                offsetOrZero(offset));
+    }
+
+    /**
+     * 순위 행(diaryId, totalScore)에 제목·썸네일·작성자를 채운다. 전체 랭킹과 친구 랭킹이
+     * 공유하므로 두 화면의 카드가 어긋나지 않는다.
+     *
+     * <p>id 목록으로 일기(1쿼리)와 작성자(1쿼리)를 한 번에 가져온다 — 페이지 크기와 무관하게
+     * 순위 조회까지 합쳐 총 3쿼리다.
+     *
+     * @param offset 이 페이지가 시작하는 위치. rank = offset + 순번이라 페이지를 넘겨도
+     *               번호가 이어진다.
+     */
+    private List<RankingItemResponse> toRankingItems(List<AiScoreRepository.RankingRow> rows, int offset) {
         if (rows.isEmpty()) {
             return List.of();
         }
@@ -122,7 +151,7 @@ public class AiScoreService {
                 .collect(Collectors.toMap(Diary::getId, Function.identity()));
         Map<Long, User> authors = diaryService.findAuthorsByDiaryIds(diaryIds);
 
-        int startRank = offsetOrZero(offset) + 1;
+        int startRank = offset + 1;
         return IntStream.range(0, rows.size())
                 .mapToObj(index -> {
                     AiScoreRepository.RankingRow row = rows.get(index);

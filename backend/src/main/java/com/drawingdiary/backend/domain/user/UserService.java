@@ -1,6 +1,7 @@
 package com.drawingdiary.backend.domain.user;
 
 import com.drawingdiary.backend.domain.follow.FollowRepository;
+import com.drawingdiary.backend.domain.user.dto.OtherUserResponse;
 import com.drawingdiary.backend.domain.user.dto.UserResponse;
 import com.drawingdiary.backend.domain.user.dto.UserSearchResponse;
 import com.drawingdiary.backend.domain.user.dto.UserUpdateRequest;
@@ -39,6 +40,31 @@ public class UserService {
                 user.getBio(),
                 followRepository.countFollowersByFollowingId(userId),
                 followRepository.countFollowingsByFollowerId(userId)
+        );
+    }
+
+    /**
+     * 남의 프로필. getMe와 세는 방식은 같고 email이 빠지며 isFollowing이 붙는다.
+     *
+     * <p>탈퇴한 계정은 User의 @SQLRestriction 때문에 findById 단계에서 이미 비어 나오므로,
+     * "없는 사용자"와 "탈퇴한 사용자"가 여기서 같은 404가 된다. 둘을 구분해 알려주면
+     * 어떤 이메일이 가입했다가 탈퇴했는지가 드러난다.
+     *
+     * <p>자기 자신을 조회해도 막지 않는다 — 프론트가 남의 프로필 화면을 그대로 써서 내
+     * 프로필을 열 수 있다. 자기 팔로우는 follows의 CHECK 제약으로 애초에 불가능하므로
+     * isFollowing은 자연히 false다.
+     */
+    @Transactional(readOnly = true)
+    public OtherUserResponse findOther(Long requesterId, Long userId) {
+        User user = getUserOrThrow(userId);
+        return new OtherUserResponse(
+                user.getId(),
+                user.getNickname(),
+                user.getProfileImageUrl(),
+                user.getBio(),
+                followRepository.countFollowersByFollowingId(userId),
+                followRepository.countFollowingsByFollowerId(userId),
+                followRepository.existsByFollowerIdAndFollowingId(requesterId, userId)
         );
     }
 

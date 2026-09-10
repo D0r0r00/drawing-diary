@@ -6,9 +6,74 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 public interface DiaryRepository extends JpaRepository<Diary, Long> {
+
+    /**
+     * DiaryService.canRead를 SQL로 옮긴 것. 여러 건을 한 번에 판정해야 하는 경로가 쓴다 —
+     * 목록마다 canRead를 부르면 협업자·팔로우 확인이 건수만큼 반복된다(N+1).
+     *
+     * <p>상수로 뽑아 @Query 문자열에 이어 붙이는 이유는 <b>갈라지지 않게</b> 하기 위해서다.
+     * 타인 일기 목록과 활동 잔디가 같은 판정을 쓰는데, 각자 SQL을 적어두면 한쪽만 고쳤을 때
+     * "잔디에는 찍혔는데 목록에는 없는 날"이 생긴다. 자바의 상수 문자열은 컴파일 타임에
+     * 합쳐지므로 애노테이션 값으로 쓸 수 있고, 한 곳만 고치면 두 쿼리가 함께 따라온다.
+     *
+     * <p>바인딩이 필요한 이름은 <b>:requesterId</b> 하나다. 이 상수를 쓰는 쿼리는 반드시
+     * 그 이름의 파라미터를 받아야 한다.
+     *
+     * <h4>FOLLOWERS_ONLY는 "작성자를 팔로우"다 — 목록 주인이 아니라</h4>
+     * 목록 주인이 방장이 아닌 협업자일 수 있는데, 그때 작성자는 제3자다. 판정을 "목록 주인을
+     * 팔로우"로 넓히면 작성자를 팔로우하지 않은 사람에게도 일기가 목록에 뜨고, 정작 열면
+     * canRead가 403을 낸다. findFeedByAuthorIds가 포함 조건만 넓히고 공개 범위 판정은
+     * 넓히지 않은 것과 같은 이유다: 목록에 뜬 일기는 항상 열 수 있어야 한다.
+     *
+     * <h4>min() 서브쿼리의 firstUser.deletedAt</h4>
+     * findFeedByAuthorIds의 같은 서브쿼리와 이유가 같다. 조인을 참조하지 않으면 Hibernate가
+     * 쓰이지 않는 조인이라며 지워버리고, 그러면 User의 @SQLRestriction도 함께 사라져
+     * 탈퇴한 방장이 작성자로 뽑힌다. findAuthors가 고르는 사람과 같아야 한다.
+     */
+    String VISIBLE_TO_REQUESTER = """
+            (
+                d.visibility = com.drawingdiary.backend.domain.diary.Visibility.PUBLIC
+                or exists (
+                    select 1 from DiaryCollaborator me
+                    where me.diary = d and me.user.id = :requesterId
+                )
+                or (
+                    d.visibility = com.drawingdiary.backend.domain.diary.Visibility.FOLLOWERS_ONLY
+                    and exists (
+                        select 1 from DiaryCollaborator author
+                        join author.user authorUser
+                        where author.diary = d
+                          and author.id = (
+                              select min(first.id) from DiaryCollaborator first
+                              join first.user firstUser
+                              where first.diary = d
+                                and firstUser.deletedAt is null
+                          )
+                          and exists (
+                              select 1 from Follow f
+                              where f.follower.id = :requesterId
+                                and f.following.id = authorUser.id
+                          )
+                    )
+                )
+            )
+            """;
+
+    /**
+     * 프로필 주인이 협업자로 참여한 일기인지. 위 상수와 마찬가지로 이어 붙여 쓰며,
+     * <b>:userId</b> 파라미터를 요구한다. 방장으로 한정하지 않는 이유는 같이 그린 일기도
+     * 그 사람의 활동이기 때문이다(피드의 포함 조건과 같은 판단).
+     */
+    String TARGET_IS_COLLABORATOR = """
+            exists (
+                select 1 from DiaryCollaborator target
+                where target.diary = d and target.user.id = :userId
+            )
+            """;
 
     /**
      * deprecated된 /api/diaries와 /api/explore가 함께 쓴다. 커서는 "이 id보다 작은 것"이라
@@ -144,4 +209,50 @@ public interface DiaryRepository extends JpaRepository<Diary, Long> {
     @Modifying(clearAutomatically = true)
     @Query("update Diary d set d.category = null where d.category.id = :categoryId")
     int clearCategory(@Param("categoryId") Long categoryId);
+
+    /**
+     * 타인 프로필의 일기 목록. 커서·정렬·fetch join이 findFeedByAuthorIds와 같고 대상 집합만
+     * 다르다(팔로우한 사람들 → 프로필 주인 한 명). 응답 변환도 피드와 같은 toFeedItems를 타므로
+     * 카드 모양이 두 화면에서 어긋나지 않는다.
+     *
+     * 권한 판정이 SQL 안에 있어 결과가 몇 건이든 쿼리는 이 한 번이다.
+     */
+    @Query("select d from Diary d "
+            + "left join fetch d.category "
+            + "where d.id < :cursor "
+            + "  and " + TARGET_IS_COLLABORATOR
+            + "  and " + VISIBLE_TO_REQUESTER
+            + "order by d.id desc")
+    List<Diary> findByCollaboratorVisibleTo(
+            @Param("userId") Long userId,
+            @Param("requesterId") Long requesterId,
+            @Param("cursor") Long cursor,
+            Pageable pageable
+    );
+
+    /**
+     * 활동 잔디가 셀 대상의 작성 시각. 날짜별 집계를 SQL의 group by로 하지 않고 시각만 받아
+     * 자바에서 묶는 이유는 두 가지다.
+     *
+     * <p>첫째, group by를 하려면 timestamp를 날짜로 자르는 함수가 필요한데 그건 방언에 걸린다.
+     * 둘째이자 더 중요한 이유는, 같은 판정을 쓰는 쿼리가 하나라도 줄어야 목록과 잔디가
+     * 어긋나지 않기 때문이다. 여기서 받은 일기는 위 findByCollaboratorVisibleTo가 내려주는
+     * 것과 정확히 같은 집합이다.
+     *
+     * <p>범위가 한 달로 잘려 있어 행 수가 적다(한 사람이 한 달에 쓰는 일기 수). 페이지네이션
+     * 없이 다 받아도 되는 크기이고, 쿼리는 한 번이다.
+     *
+     * @param from 그 달의 1일 00:00 (포함)
+     * @param to   다음 달 1일 00:00 (제외) — 말일 23:59:59.999 로 자르면 경계에 걸리는 값이 샌다
+     */
+    @Query("select d.createdAt from Diary d "
+            + "where " + TARGET_IS_COLLABORATOR
+            + "  and " + VISIBLE_TO_REQUESTER
+            + "  and d.createdAt >= :from and d.createdAt < :to")
+    List<LocalDateTime> findVisibleCreatedAtByCollaborator(
+            @Param("userId") Long userId,
+            @Param("requesterId") Long requesterId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
 }

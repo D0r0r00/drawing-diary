@@ -3,11 +3,14 @@ package com.drawingdiary.backend.domain.like;
 import com.drawingdiary.backend.domain.aiscore.AiScoreService;
 import com.drawingdiary.backend.domain.diary.DiaryService;
 import com.drawingdiary.backend.domain.like.dto.LikeResponse;
+import com.drawingdiary.backend.domain.like.dto.LikeUserResponse;
 import com.drawingdiary.backend.domain.notification.NotificationService;
 import com.drawingdiary.backend.domain.notification.NotificationType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -39,6 +42,23 @@ public class LikeService {
         }
 
         return new LikeResponse(diaryId, true, likeRepository.countByDiaryId(diaryId));
+    }
+
+    /**
+     * 좋아요를 누른 사람 목록. 일기를 볼 수 없는 사람은 누가 눌렀는지도 볼 수 없다 —
+     * 댓글 목록과 같이 권한 판정을 DiaryService에 맡겨 규칙이 한 곳에만 있게 한다.
+     *
+     * <p>탈퇴한 계정은 리포지토리 단계에서 빠지므로, 이 목록의 길이가 좋아요 응답의
+     * likeCount보다 작을 수 있다(findUsersByDiaryId 주석 참고).
+     */
+    @Transactional(readOnly = true)
+    public List<LikeUserResponse> findLikedUsers(Long userId, Long diaryId) {
+        diaryService.getReadableDiaryOrThrow(userId, diaryId);
+
+        return likeRepository.findUsersByDiaryId(diaryId).stream()
+                .map(user -> new LikeUserResponse(
+                        user.getId(), user.getNickname(), user.getProfileImageUrl()))
+                .toList();
     }
 
     /**

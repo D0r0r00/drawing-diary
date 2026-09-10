@@ -229,6 +229,73 @@ API 호출 → 401 + code=TOKEN_EXPIRED
 - GET /api/users/search?keyword={검색어}
 - Response: [{ id, nickname, profileImageUrl }]
 
+### 타인 정보 조회
+- GET /api/users/{userId}
+- 인증 필요
+- Response 200: { userId, nickname, profileImageUrl, bio, followerCount, followingCount, isFollowing }
+```json
+{
+  "userId": 5,
+  "nickname": "유나",
+  "profileImageUrl": "https://picsum.photos/seed/dd-user-b/200/200",
+  "bio": "카페랑 창밖 고양이를 주로 그려요. 색연필파.",
+  "followerCount": 4,
+  "followingCount": 2,
+  "isFollowing": true
+}
+```
+- **`email`이 없다.** 내 정보 조회(`/api/users/me`)와의 유일한 차이가 이것과 `isFollowing`이다. 남의 이메일은 화면에 쓸 데가 없고, 한 번 내려주면 어느 계정이 어떤 주소를 쓰는지 누구나 수집할 수 있다.
+- 응답 키가 `id`가 아니라 **`userId`**임에 주의(`/api/users/me`는 `id`).
+- `isFollowing`: **요청자가** 이 사람을 팔로우 중인지. 팔로우 버튼을 "팔로우"로 그릴지 "팔로잉 중"으로 그릴지 정하는 값이라, 프로필 진입 시 별도 요청 없이 바로 쓸 수 있게 여기 담았다.
+- 자기 자신을 조회해도 200이며 `isFollowing`은 **항상 false**(자기 팔로우는 불가능).
+- 404: 없는 사용자이거나 **탈퇴한 사용자**. 둘을 구분하지 않는데, 구분해 알려주면 어떤 계정이 가입했다가 탈퇴했는지가 드러난다.
+
+> **경로 주의**: `{userId}`는 **숫자만** 매칭된다(`{userId:\d+}`). `/api/users/me`,
+> `/api/users/search`처럼 문자로 시작하는 경로가 이 핸들러로 새지 않게 하려는 것이다.
+> `/api/users/abc`는 404다.
+
+### 타인 일기 목록 조회
+- GET /api/users/{userId}/diaries?cursor={diaryId}&limit=10
+- 인증 필요
+- 그 사용자가 **협업자로 참여한** 일기 중 요청자가 볼 수 있는 것만
+- `limit` 기본 10, 최대 50 (벗어나면 조용히 보정). `cursor`는 "이 diaryId보다 작은 것", 생략하면 첫 페이지
+- Response 200: [팔로잉 피드](#팔로잉-피드)와 **완전히 같은 형식** — `{ id, title, content, thumbnailUrl, createdAt, categoryId, categoryName, user, tags, diaryId, img }`
+- 정렬은 `diaryId` 내림차순(최신순). 더 없으면 빈 배열 `[]`
+
+공개 범위별로 이렇게 걸러진다.
+
+| visibility | 보이는 사람 |
+|---|---|
+| `PUBLIC` | 로그인한 누구나 |
+| `FOLLOWERS_ONLY` | 협업자이거나, **그 일기의 작성자**를 팔로우하는 사람 |
+| `PRIVATE` | 협업자만 |
+
+> **`FOLLOWERS_ONLY` 판정은 "목록 주인"이 아니라 "작성자" 기준이다**
+> 목록 주인이 방장이 아닌 협업자로 참여한 일기라면 작성자는 제3자다. 판정을 "목록 주인을
+> 팔로우"로 넓히면 작성자를 팔로우하지 않은 사람에게도 카드가 뜨는데, 정작 탭해서 열면
+> [일기 상세 조회](#일기-상세-조회)가 403을 낸다. **목록에 뜬 일기는 항상 열 수 있어야 한다**는
+> 규칙을 지키려고 상세 조회와 같은 기준을 쓴다(팔로잉 피드도 같은 이유로 같은 선택을 했다).
+> 목록 주인이 곧 작성자인 흔한 경우에는 둘이 같은 결과다.
+
+- 자기 자신을 조회하면 협업자 판정이 전부 통과해 **PRIVATE까지 전부** 보인다. 결과적으로 `/api/diaries/my`와 같은 집합이며, 차이는 응답 형식과 페이지네이션 유무뿐이다.
+
+### 활동 잔디 (달력)
+- GET /api/users/{userId}/activity?year=2026&month=9
+- 인증 필요
+- `year`·`month` **둘 다 필수**
+- Response 200: `[{ date, count }]`
+```json
+[
+  { "date": "2026-09-01", "count": 2 },
+  { "date": "2026-09-05", "count": 1 }
+]
+```
+- `date`는 `yyyy-MM-dd`, 오름차순
+- **일기가 없는 날은 배열에 없다.** 프론트가 빈 칸으로 그리면 된다 — 한 달치 0을 다 내려주면 응답의 대부분이 `count: 0`이 된다
+- `count`는 **요청자가 볼 수 있는 일기만** 센다. 판정 기준은 위 [타인 일기 목록 조회](#타인-일기-목록-조회)와 **완전히 동일**하므로, 잔디에 찍힌 날에는 반드시 목록에 그만큼의 일기가 있다
+- 400: `year`가 2000~2100 밖 / `month`가 1~12 밖 / 둘 중 하나라도 없음 / 숫자가 아님
+  - 피드의 `limit`처럼 조용히 보정하지 않는다. 잘못된 달을 이번 달로 바꿔치면 프론트가 요청한 것과 다른 달의 잔디를 그리고, 화면상으로는 아무 이상이 없어 보인다
+
 ## Follow
 ### 팔로우
 - POST /api/users/{userId}/follow
@@ -504,8 +571,9 @@ psql "$DATABASE_URL" -v target_user_id=2 -f infra/seed-dummy-diaries.sql
 
 ### 내 일기 목록 조회
 - GET /api/diaries/my
-- Response 200: [{ id, title, content, thumbnailUrl, createdAt, categoryId, categoryName, visibility }]
+- Response 200: [{ id, title, content, thumbnailUrl, createdAt, categoryId, categoryName, visibility, tags }]
 - `content`는 본문 전체, `thumbnailUrl`은 `final_img_url`. `categoryId`/`categoryName`은 분류가 없으면 둘 다 null.
+- `tags`는 `[{ id, name }]`. 태그가 없으면 null이 아니라 **빈 배열** `[]` — 피드·탐색·상세와 같은 규칙.
 - 요청자가 협업자인 일기만. 본인이 참여한 일기이므로 **visibility와 무관하게 전부** 보임.
 - 참여한 일기가 없으면 빈 배열 `[]`.
 
@@ -783,6 +851,16 @@ psql "$DATABASE_URL" -v target_user_id=2 -f infra/seed-dummy-diaries.sql
 - 등록과 달리 **조회 권한을 보지 않음**. 이미 남긴 좋아요는 나중에 일기가 비공개로 바뀌어도 취소할 수 있어야 하기 때문. 단 일기 자체가 없으면 404.
 - 취소 후 다시 등록 가능.
 
+### 좋아요 누른 사람 목록
+- GET /api/diaries/{diaryId}/likes
+- 인증 필요
+- Response 200: `[{ userId, nickname, profileImageUrl }]`
+- **최신순**(마지막에 누른 사람이 앞). 좋아요는 취소·재등록이 가능해서 "누른 순서"는 마지막 등록 시점 기준이다
+- 403: 일기 조회 권한이 없는 경우 — 못 보는 일기는 누가 눌렀는지도 볼 수 없다
+- 404: 일기가 없거나 이미 삭제된 경우
+- 아무도 안 눌렀으면 빈 배열 `[]`
+- **탈퇴한 계정은 목록에서 빠진다.** 그래서 이 배열의 길이가 좋아요 등록·취소 응답의 `likeCount`보다 **작을 수 있다.** 일부러 다르게 뒀다 — `likeCount`는 누른 기록 그대로여야 랭킹 점수가 흔들리지 않고, 목록은 지금 남아 있는 사람만 보여주는 게 맞다
+
 ### 랭킹과의 관계
 좋아요 수가 랭킹 점수에 들어가므로, 좋아요가 **실제로** 등록·취소될 때 그 일기의
 `likeScore`와 `totalScore`가 즉시 다시 계산된다([점수 공식](#점수-공식-팀-확정)).
@@ -808,6 +886,17 @@ psql "$DATABASE_URL" -v target_user_id=2 -f infra/seed-dummy-diaries.sql
 - 403: 일기 조회 권한이 없는 경우 — **댓글도 못 보는 일기에는 댓글을 달 수 없음**
 - 404: 일기가 없거나 이미 삭제된 경우
 - 협업자가 아니어도 됨. `PUBLIC` 일기라면 로그인한 누구나 작성 가능.
+
+### 댓글 수정
+- PATCH /api/comments/{commentId}
+- 일기 경로가 아니라 `commentId`만으로 호출함에 주의(삭제와 같다).
+- Body: { content } — 필수
+- Response 200: { id, content, updatedAt }
+- 400: `content`가 없거나 빈 문자열/공백뿐이거나 1000자 초과 — **작성과 완전히 같은 제한**
+- 403: **작성자 본인이 아닌 경우.** 일기 협업자나 방장이라도 남의 댓글 내용은 바꿀 수 없다
+- 404: 댓글이 없거나 이미 삭제된 경우
+- 삭제와 마찬가지로 **일기 조회 권한을 다시 보지 않는다.** 이미 남긴 내 글을 고치는 일이라, 나중에 일기가 비공개로 바뀌었다고 손댈 수 없게 되면 곤란하기 때문
+- **알림이 가지 않는다.** 수정할 때마다 알림이 다시 가면 댓글 하나로 알림을 몇 번이든 만들 수 있다(작성 시에만 `COMMENT` 알림)
 
 ### 댓글 삭제
 - DELETE /api/comments/{commentId}
@@ -1038,6 +1127,19 @@ AI 서버의 `/openapi.json`과 실호출로 확인한 결과다.
 정렬은 `totalScore` 내림차순, **동점이면 diaryId 오름차순**. 두 키를 합치면 전순서라
 같은 데이터에 대해 순위가 요청마다 달라지지 않는다.
 
+> ### ⚠️ `rank`의 의미가 엔드포인트마다 다르다
+>
+> | 엔드포인트 | `rank`의 뜻 |
+> |---|---|
+> | `GET /api/rankings` | **그 목록에서 몇 번째** (`rank = offset + 순번`) |
+> | `GET /api/rankings/friends` | **그 목록에서 몇 번째** (`rank = offset + 순번`) |
+> | `GET /api/rankings/me` | **전체 랭킹에서 몇 위** |
+>
+> 친구 랭킹은 목록 안 순위다. 전체 순위로 매기면 화면에 `37위·102위·415위`처럼 찍혀
+> 리더보드로 읽히지 않고, `offset`을 넘길 때 `rank`가 건너뛰어 "몇 번째 항목인지"조차
+> 알 수 없게 된다. 반대로 내 랭킹은 "전체에서 어디쯤인가"가 곧 질문이라 전역 순위여야 한다.
+> 두 화면에서 같은 일기의 `rank`가 다르게 보일 수 있는데, 버그가 아니다.
+
 ### 전체 랭킹
 - GET /api/rankings?offset=0&limit=20
 - 인증 필요
@@ -1058,6 +1160,22 @@ AI 서버의 `/openapi.json`과 실호출로 확인한 결과다.
 > 대신 스크롤 도중 점수가 바뀌면 항목이 밀려 중복·누락이 생길 수 있다. 랭킹은 AI 점수 저장과
 > 좋아요 변동에만 움직여 피드만큼 자주 변하지 않아 감수할 만하다고 봤다. 실시간성이 중요해지면
 > `(totalScore, diaryId)` 복합 커서로 바꾸되, 그때는 `rank`를 클라이언트가 누적 계산해야 한다.
+
+### 친구 랭킹
+- GET /api/rankings/friends?offset=0&limit=20
+- 인증 필요
+- **내가 팔로우하는 사람이 협업자로 참여한** 일기 중 AI 점수가 있는 것
+- `limit` 기본 20, 최대 50 (벗어나면 조용히 보정). `offset` 기본 0
+- Response 200: `[{ rank, diaryId, title, thumbnailUrl, totalScore, authorId, authorNickname }]` — [전체 랭킹](#전체-랭킹)과 **같은 형식**
+- 정렬·대상(PUBLIC만)·페이지네이션 모두 전체 랭킹과 같고, 대상 집합만 좁다
+- 팔로우하는 사람이 없거나 그들의 일기에 점수가 없으면 빈 배열 `[]`
+- "협업자 중 누구라도"가 기준이라, 방장이 아니어도 팔로우한 사람이 같이 그린 일기면 포함된다(팔로잉 피드와 같은 판단). 한 일기에서 여러 명을 팔로우 중이어도 **한 번만** 나온다
+
+> **내가 쓴 일기도 나올 수 있다**
+> 자기 자신은 팔로우할 수 없으므로 **혼자 그린 일기는 나오지 않는다.** 하지만 내가 팔로우하는
+> 사람과 **같이 그린** 일기는 그 사람이 협업자라서 포함되고, 이때 `authorNickname`은 나로
+> 표시된다(작성자 = 첫 협업자). 버그가 아니라 위의 "협업자 중 누구라도" 규칙의 결과다.
+> 순수하게 내 순위만 보려면 [내 랭킹](#내-랭킹)을 쓴다.
 
 ### 내 랭킹
 - GET /api/rankings/me

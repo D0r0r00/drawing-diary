@@ -33,11 +33,14 @@ import com.drawingdiary.backend.domain.room.exception.RoomSubmitContentMissingEx
 import com.drawingdiary.backend.domain.tag.exception.InvalidTagNameException;
 import com.drawingdiary.backend.domain.tag.exception.TooManyTagsException;
 import com.drawingdiary.backend.domain.user.exception.DuplicateNicknameException;
+import com.drawingdiary.backend.domain.user.exception.InvalidActivityPeriodException;
 import com.drawingdiary.backend.domain.user.exception.UserNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
@@ -236,6 +239,31 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(FinalImageMissingException.class)
     public ResponseEntity<ErrorResponse> handleFinalImageMissing(FinalImageMissingException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(e.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidActivityPeriodException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidActivityPeriod(InvalidActivityPeriodException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(e.getMessage()));
+    }
+
+    /**
+     * 필수 쿼리 파라미터 누락(활동 잔디의 year·month 등). 잡지 않으면 스프링 기본 에러 본문이
+     * 나가서, 같은 400인데도 다른 에러들과 응답 모양이 달라진다.
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingParameter(MissingServletRequestParameterException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse(e.getParameterName() + " 파라미터가 필요합니다."));
+    }
+
+    /**
+     * 타입이 맞지 않는 파라미터(?year=abc, /api/diaries/xyz 등). 위와 같은 이유로 400이며,
+     * 값 자체를 메시지에 담지 않는다 — 그대로 되돌려주면 에러 화면이 입력 반사 지점이 된다.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse(e.getName() + " 값의 형식이 올바르지 않습니다."));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

@@ -35,6 +35,32 @@ public class RankingController {
         return ResponseEntity.ok(aiScoreService.findRanking(offset, limit));
     }
 
+    /**
+     * 친구 랭킹 — 내가 팔로우하는 사람들이 참여한 일기.
+     *
+     * <h4>rank의 의미: 이 목록 안에서의 순위다</h4>
+     * 같은 이름의 필드지만 /api/rankings/me와 뜻이 다르니 주의.
+     * <ul>
+     *   <li>여기와 GET /api/rankings — <b>그 목록에서 몇 번째</b>(rank = offset + 순번)</li>
+     *   <li>GET /api/rankings/me — <b>전체 랭킹에서 몇 위</b></li>
+     * </ul>
+     * 친구 랭킹을 전체 순위로 매기면 화면에 37위·102위·415위처럼 찍혀 리더보드로 읽히지
+     * 않고, offset을 넘길 때 rank가 건너뛰어 "몇 번째 항목인지"도 알 수 없게 된다.
+     * 내 순위는 "전체에서 어디쯤인가"가 곧 질문이라 반대로 전역 순위여야 한다.
+     */
+    @GetMapping("/friends")
+    public ResponseEntity<List<RankingItemResponse>> friendRanking(
+            Authentication authentication,
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "20") int limit
+    ) {
+        return ResponseEntity.ok(
+                aiScoreService.findFriendRanking((Long) authentication.getPrincipal(), offset, limit));
+    }
+
+    /**
+     * rank가 <b>전체 랭킹 기준</b>이다(위 friendRanking 주석 참고).
+     */
     @GetMapping("/me")
     public ResponseEntity<List<MyRankingItemResponse>> myRanking(Authentication authentication) {
         return ResponseEntity.ok(aiScoreService.findMyRanking((Long) authentication.getPrincipal()));

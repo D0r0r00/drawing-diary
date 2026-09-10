@@ -20,12 +20,16 @@ import com.drawingdiary.backend.domain.tag.DiaryTagRepository;
 import com.drawingdiary.backend.domain.tag.TagService;
 import com.drawingdiary.backend.domain.tag.dto.TagResponse;
 import com.drawingdiary.backend.domain.user.User;
+import com.drawingdiary.backend.domain.user.dto.ActivityItemResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -162,10 +166,17 @@ public class DiaryService {
 
     /**
      * 본인이 참여한 일기이므로 visibility와 무관하게 전부 보인다.
+     *
+     * 태그는 목록 경로들과 같이 findTagsByDiaryIds로 한 번에 가져온다 — 일기마다 따로
+     * 조회하면 건수만큼 쿼리가 붙는다(총 2쿼리로 고정).
      */
     @Transactional(readOnly = true)
     public List<MyDiaryResponse> findMine(Long userId) {
-        return diaryCollaboratorRepository.findDiariesByUserId(userId).stream()
+        List<Diary> diaries = diaryCollaboratorRepository.findDiariesByUserId(userId);
+        Map<Long, List<TagResponse>> tags =
+                tagService.findTagsByDiaryIds(diaries.stream().map(Diary::getId).toList());
+
+        return diaries.stream()
                 .map(diary -> new MyDiaryResponse(
                         diary.getId(),
                         diary.getTitle(),
@@ -174,8 +185,45 @@ public class DiaryService {
                         diary.getCreatedAt(),
                         categoryId(diary),
                         categoryName(diary),
-                        diary.getVisibility()
+                        diary.getVisibility(),
+                        tags.getOrDefault(diary.getId(), List.of())
                 ))
+                .toList();
+    }
+
+    /**
+     * 타인 프로필의 일기 목록. 피드와 커서·페이지 크기·응답 변환(toFeedItems)을 그대로
+     * 공유하고 대상 집합만 다르다 — 카드에 담기는 내용이 두 화면에서 어긋나지 않는다.
+     *
+     * 공개 범위 판정은 DiaryRepository.VISIBLE_TO_REQUESTER가 SQL로 한 번에 처리한다.
+     * 일기마다 canRead를 부르면 협업자·팔로우 확인이 건수만큼 반복될 자리다.
+     *
+     * 자기 프로필을 열어도 막지 않는다. 요청자가 곧 협업자라 판정이 전부 통과해
+     * PRIVATE까지 그대로 보이고, 결과적으로 /api/diaries/my와 같은 집합이 된다.
+     */
+    @Transactional(readOnly = true)
+    public List<FeedItemResponse> findByUser(Long requesterId, Long userId, Long cursor, int limit) {
+        return toFeedItems(diaryRepository.findByCollaboratorVisibleTo(
+                userId, requesterId, cursorOrFirstPage(cursor), PageRequest.ofSize(pageSize(limit))));
+    }
+
+    /**
+     * 활동 잔디 — 그 달에 일기를 쓴 날짜별 개수. 일기 목록과 같은 판정을 쓰므로
+     * "잔디에 찍힌 날"과 "목록에 나오는 일기"가 항상 맞아떨어진다.
+     *
+     * 한 달치 작성 시각을 쿼리 한 번으로 받아 자바에서 날짜별로 묶는다. 개수가 0인 날은
+     * 애초에 행이 없어 결과에서 빠진다(프론트가 빈 칸으로 그린다).
+     */
+    @Transactional(readOnly = true)
+    public List<ActivityItemResponse> findActivity(Long requesterId, Long userId, YearMonth month) {
+        Map<LocalDate, Long> byDate = diaryRepository.findVisibleCreatedAtByCollaborator(
+                        userId, requesterId, month.atDay(1).atStartOfDay(), month.plusMonths(1).atDay(1).atStartOfDay())
+                .stream()
+                .collect(Collectors.groupingBy(LocalDateTime::toLocalDate, Collectors.counting()));
+
+        return byDate.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> new ActivityItemResponse(entry.getKey(), entry.getValue()))
                 .toList();
     }
 

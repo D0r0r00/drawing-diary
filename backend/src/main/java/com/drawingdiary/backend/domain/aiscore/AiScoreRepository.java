@@ -40,6 +40,44 @@ public interface AiScoreRepository extends JpaRepository<AiScore, Long> {
     List<RankingRow> findRankingPage(@Param("limit") int limit, @Param("offset") int offset);
 
     /**
+     * 친구 랭킹 한 페이지 — 내가 팔로우하는 사람이 <b>협업자로 참여한</b> 일기.
+     *
+     * <p>정렬·대상(PUBLIC)·페이지네이션이 findRankingPage와 같고 exists 조건만 더 붙는다.
+     * "협업자 중 누구라도"인 것은 findFeedByAuthorIds가 피드를 넓힌 것과 같은 판단이다:
+     * 같이 그린 사람을 팔로우하고 있으면 그 일기도 내 친구들의 결과물이다. exists라
+     * 한 일기에서 여러 명을 팔로우 중이어도 행이 중복되지 않아 offset이 그대로 성립한다.
+     *
+     * <p>내 일기는 여기 나오지 않는다 — 자기 자신은 팔로우할 수 없기 때문이다
+     * (내 순위는 /api/rankings/me).
+     *
+     * <p><b>rank는 이 목록 안에서의 순위다</b>(전체 랭킹에서의 순위가 아니다).
+     * findMyRanking과 의미가 다르니 주의. 이유는 RankingController 주석 참고.
+     */
+    @Query(
+            value = """
+                    select a.diary_id as diaryId, a.total_score as totalScore
+                    from ai_scores a
+                    join diaries d on d.diary_id = a.diary_id
+                    where d.visibility = 'PUBLIC'
+                      and exists (
+                          select 1
+                          from diary_collaborators dc
+                          join follows f on f.following_id = dc.user_id
+                          where dc.diary_id = a.diary_id
+                            and f.follower_id = :userId
+                      )
+                    order by a.total_score desc, a.diary_id asc
+                    limit :limit offset :offset
+                    """,
+            nativeQuery = true
+    )
+    List<RankingRow> findFriendRankingPage(
+            @Param("userId") Long userId,
+            @Param("limit") int limit,
+            @Param("offset") int offset
+    );
+
+    /**
      * 내가 협업자인 일기들의 <b>전체 랭킹에서의</b> 순위. 순위를 매긴 뒤에 내 것만 걸러야 하므로
      * 서브쿼리로 전체 순위를 먼저 계산한다 — 내 일기만 놓고 세면 항상 1위부터 나온다.
      * <p>
