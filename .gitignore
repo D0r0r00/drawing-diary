@@ -29,3 +29,10 @@ ai-server/**/*.pyc
 # OS
 .DS_Store
 Thumbs.db
+
+# DB 덤프/백업 — 실제 운영 데이터라 올리면 안 된다.
+# 사용자 이메일과 bcrypt 비밀번호 해시가 그대로 들어 있다.
+# 시드 스크립트(seed-*.sql)는 지어낸 데이터라 커밋 대상이다.
+infra/*backup*.sql
+infra/*dump*.sql
+*.dump
