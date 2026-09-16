@@ -52,6 +52,12 @@ public interface AiScoreRepository extends JpaRepository<AiScore, Long> {
      *
      * <p><b>rank는 이 목록 안에서의 순위다</b>(전체 랭킹에서의 순위가 아니다).
      * findMyRanking과 의미가 다르니 주의. 이유는 RankingController 주석 참고.
+     *
+     * <h4>users.deleted_at을 직접 거르는 이유</h4>
+     * 탈퇴는 soft delete라 follows 행이 그대로 남는다. 피드는 팔로잉 목록을 User 엔티티로
+     * 받아 @SQLRestriction이 탈퇴자를 빼주지만, <b>네이티브 쿼리는 그 필터를 타지 않는다.</b>
+     * 이 조건이 없으면 팔로우한 사람이 탈퇴한 뒤에도 그 사람이 참여한 일기가 친구 랭킹에만
+     * 남아, 피드에서는 사라진 일기가 여기서는 계속 보인다.
      */
     @Query(
             value = """
@@ -63,8 +69,10 @@ public interface AiScoreRepository extends JpaRepository<AiScore, Long> {
                           select 1
                           from diary_collaborators dc
                           join follows f on f.following_id = dc.user_id
+                          join users followed on followed.user_id = f.following_id
                           where dc.diary_id = a.diary_id
                             and f.follower_id = :userId
+                            and followed.deleted_at is null
                       )
                     order by a.total_score desc, a.diary_id asc
                     limit :limit offset :offset
