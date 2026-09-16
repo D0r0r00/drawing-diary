@@ -11,28 +11,62 @@
 --     - 시드 계정의 profile_img_url / bio 가 비었거나 example.com 가짜 URL일 때만 채운다
 --     - 시드 계정이 쓴 기존 일기의 category_id 가 NULL 일 때만 채운다
 --     - 시드 계정 10개의 비밀번호는 password123 으로 맞춘다(아래 1번 블록 주석 참고)
---   * user_id 를 하드코딩하지 않는다. 사람은 전부 이메일로 찾는다.
---     로컬 DB와 Railway DB의 id 체계가 서로 다르기 때문이다.
+--   * user_id 를 하드코딩하지 않는다. 사람은 전부 아이디(login_id)로 찾는다.
+--     로컬 DB와 Railway DB의 id 체계가 서로 다르기 때문이다. 이메일로 찾지 않는 이유는
+--     이메일이 더 이상 UNIQUE가 아니라서(선택 입력, 중복 허용) 한 사람을 특정하지 못하기 때문이다.
+--   * users.login_id 가 있어야 한다. 없으면 먼저 infra/migrate-login-id.sql 을 반영할 것.
 --
--- 등장인물(A~D 4명 + 구경꾼 6명):
---   A test3@example.com        기존 계정. 비밀번호는 건드리지 않는다(없으면 새로 만든다).
---   B seed.yuna@example.com  C seed.dohyun@example.com  D seed.sora@example.com
---   구경꾼 seed.reader1~6@example.com — 좋아요 수를 0~8로 벌리려고 두는 조연.
---   새로 만드는 계정의 비밀번호는 전부 password123.
+-- 등장인물(A~D 4명 + 구경꾼 6명) — 로그인은 아이디 / password123:
+--   A test3        기존 계정. 없으면 새로 만든다.
+--   B seed_yuna    C seed_dohyun    D seed_sora
+--   구경꾼 seed_reader1~6 — 좋아요 수를 0~8로 벌리려고 두는 조연.
+--   각 계정의 email(test3@example.com, seed.yuna@example.com …)은 연락처로만 남아 있다.
 
 BEGIN;
 
 -- ---------------------------------------------------------------------------
+-- 0. 시드 계정 목록
+--
+-- 뒤 섹션들(특히 10. 알림)이 "시드 계정인가"를 판정할 때 쓴다. 예전에는
+-- email LIKE 'seed.%@example.com' 으로 골랐는데, 이메일은 이제 중복을 허용하는 연락처라
+-- 아무나 같은 값을 넣을 수 있어 판정 기준으로 쓸 수 없다.
+-- ---------------------------------------------------------------------------
+DO $guard$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'users' AND column_name = 'login_id') THEN
+        RAISE EXCEPTION 'users.login_id 컬럼이 없습니다. infra/migrate-login-id.sql 을 먼저 반영하세요.';
+    END IF;
+END $guard$;
+
+CREATE TEMP TABLE seed_accounts (login_id text PRIMARY KEY, email text NOT NULL) ON COMMIT DROP;
+INSERT INTO seed_accounts VALUES
+    ('test3',        'test3@example.com'),
+    ('seed_yuna',    'seed.yuna@example.com'),
+    ('seed_dohyun',  'seed.dohyun@example.com'),
+    ('seed_sora',    'seed.sora@example.com'),
+    ('seed_reader1', 'seed.reader1@example.com'),
+    ('seed_reader2', 'seed.reader2@example.com'),
+    ('seed_reader3', 'seed.reader3@example.com'),
+    ('seed_reader4', 'seed.reader4@example.com'),
+    ('seed_reader5', 'seed.reader5@example.com'),
+    ('seed_reader6', 'seed.reader6@example.com');
+
+-- ---------------------------------------------------------------------------
 -- 1. 계정
 --
--- 이메일로 이미 있으면 새로 만들지 않고, 비어 있는 프로필만 채운다. 닉네임에는 unique
+-- 아이디로 이미 있으면 새로 만들지 않고, 비어 있는 프로필만 채운다. 닉네임에는 unique
 -- 제약이 있어서 다른 사람이 이미 쓰고 있으면 뒤에 숫자를 붙여 비켜간다 — 시드가
 -- 남의 데이터 때문에 통째로 실패하는 일을 막으려는 것이다.
 --
 -- 비밀번호는 아래 10개 계정에 한해 password123 으로 맞춘다. 프론트가 계정마다 다른
 -- 비밀번호를 들고 다니지 않아도 되게 하려는 것으로, 특히 이 스크립트보다 먼저 있던
--- test3@example.com 이 대상이다. 전부 example.com 테스트 계정이고 목록이 여기 고정돼
--- 있어서 다른 사용자에게는 닿지 않는다.
+-- test3 이 대상이다.
+--
+-- ⚠️ 아이디가 같다고 무조건 시드 계정으로 보지 않는다. 이메일과 달리 아이디는 실제 사용자가
+-- 가입으로 선점할 수 있어서, 아이디만 보고 비밀번호를 맞추면 남의 계정 비밀번호를 덮어쓰게
+-- 된다. 그래서 아이디와 시드 이메일이 "둘 다" 맞을 때만 시드 계정으로 취급하고, 아이디만
+-- 겹치면 아무것도 바꾸지 않고 중단한다.
 -- ---------------------------------------------------------------------------
 DO $seed$
 DECLARE
@@ -46,20 +80,29 @@ DECLARE
     repw     int := 0;
 BEGIN
     FOR r IN
-        SELECT * FROM (VALUES
-            ('test3@example.com',        '민서',    '그림일기 3년차. 하루에 한 컷씩 남기는 중.',   'dd-user-a', 120),
-            ('seed.yuna@example.com',    '유나',    '카페랑 창밖 고양이를 주로 그려요. 색연필파.', 'dd-user-b',  90),
-            ('seed.dohyun@example.com',  '도현',    '자전거 타고 다니면서 본 풍경을 그립니다.',    'dd-user-c',  75),
-            ('seed.sora@example.com',    '소라',    '먹은 것만 그리는 계정. 대체로 야식.',         'dd-user-d',  60),
-            ('seed.reader1@example.com', '구경꾼1', '조용히 구경만 합니다.',                       'dd-reader1', 50),
-            ('seed.reader2@example.com', '구경꾼2', '좋아요 누르는 게 취미.',                      'dd-reader2', 45),
-            ('seed.reader3@example.com', '구경꾼3', '언젠가 저도 그려볼게요.',                     'dd-reader3', 40),
-            ('seed.reader4@example.com', '구경꾼4', '그림 잘 그리는 사람 구경하는 계정.',          'dd-reader4', 35),
-            ('seed.reader5@example.com', '구경꾼5', '야경 그림만 보면 멈춥니다.',                  'dd-reader5', 30),
-            ('seed.reader6@example.com', '구경꾼6', '맛있는 그림 찾아다니는 중.',                  'dd-reader6', 25)
-        ) AS t(email, nickname, bio, avatar, days_ago)
+        SELECT t.*, sa.email
+          FROM (VALUES
+            ('test3',        '민서',    '그림일기 3년차. 하루에 한 컷씩 남기는 중.',   'dd-user-a', 120),
+            ('seed_yuna',    '유나',    '카페랑 창밖 고양이를 주로 그려요. 색연필파.', 'dd-user-b',  90),
+            ('seed_dohyun',  '도현',    '자전거 타고 다니면서 본 풍경을 그립니다.',    'dd-user-c',  75),
+            ('seed_sora',    '소라',    '먹은 것만 그리는 계정. 대체로 야식.',         'dd-user-d',  60),
+            ('seed_reader1', '구경꾼1', '조용히 구경만 합니다.',                       'dd-reader1', 50),
+            ('seed_reader2', '구경꾼2', '좋아요 누르는 게 취미.',                      'dd-reader2', 45),
+            ('seed_reader3', '구경꾼3', '언젠가 저도 그려볼게요.',                     'dd-reader3', 40),
+            ('seed_reader4', '구경꾼4', '그림 잘 그리는 사람 구경하는 계정.',          'dd-reader4', 35),
+            ('seed_reader5', '구경꾼5', '야경 그림만 보면 멈춥니다.',                  'dd-reader5', 30),
+            ('seed_reader6', '구경꾼6', '맛있는 그림 찾아다니는 중.',                  'dd-reader6', 25)
+          ) AS t(login_id, nickname, bio, avatar, days_ago)
+          JOIN seed_accounts sa USING (login_id)
     LOOP
-        IF EXISTS (SELECT 1 FROM users WHERE email = r.email) THEN
+        -- 탈퇴 계정까지 본다. login_id UNIQUE는 탈퇴 계정도 막으므로, 여기서 못 보면 INSERT가 실패한다.
+        IF EXISTS (SELECT 1 FROM users WHERE login_id = r.login_id) THEN
+            IF NOT EXISTS (SELECT 1 FROM users
+                            WHERE login_id = r.login_id AND email = r.email AND deleted_at IS NULL) THEN
+                RAISE EXCEPTION '아이디 %는 시드 계정이 아닌 사람(또는 탈퇴 계정)이 쓰고 있습니다. 비밀번호를 덮어쓰지 않도록 중단합니다.',
+                    r.login_id;
+            END IF;
+
             -- 이미 있는 계정: 비어 있는 프로필만 채운다. example.com 은 실제로 뜨지 않는
             -- 가짜 URL이라 "비어 있음"과 같게 취급한다.
             UPDATE users
@@ -71,7 +114,7 @@ BEGIN
                    bio = CASE
                        WHEN bio IS NULL OR bio = '' THEN r.bio
                        ELSE bio END
-             WHERE email = r.email
+             WHERE login_id = r.login_id
                AND (profile_img_url IS NULL OR profile_img_url = ''
                     OR profile_img_url LIKE 'https://example.com/%'
                     OR bio IS NULL OR bio = '');
@@ -82,7 +125,7 @@ BEGIN
             -- 비밀번호 통일. bcrypt 는 salt 가 섞여 있어 SQL 로는 "이 해시가 password123 인가"를
             -- 검사할 수 없으므로, 항상 같은 해시 문자열을 넣고 그것과 다를 때만 쓴다.
             -- 덕분에 두 번째 실행부터는 0건이 되어 재실행이 조용하다.
-            UPDATE users SET password = pw WHERE email = r.email AND password <> pw;
+            UPDATE users SET password = pw WHERE login_id = r.login_id AND password <> pw;
             IF FOUND THEN
                 repw := repw + 1;
             END IF;
@@ -98,8 +141,8 @@ BEGIN
             RAISE NOTICE '닉네임 %가 이미 쓰이고 있어 %로 바꿉니다.', r.nickname, nick;
         END LOOP;
 
-        INSERT INTO users (email, password, nickname, profile_img_url, bio, created_at, updated_at)
-        VALUES (r.email, pw, nick,
+        INSERT INTO users (login_id, email, password, nickname, profile_img_url, bio, created_at, updated_at)
+        VALUES (r.login_id, r.email, pw, nick,
                 'https://picsum.photos/seed/' || r.avatar || '/200/200',
                 r.bio,
                 now() - (r.days_ago || ' days')::interval,
@@ -120,13 +163,13 @@ BEGIN
     INSERT INTO categories (user_id, name, created_at, updated_at)
     SELECT u.user_id, c.name, u.created_at, u.created_at
       FROM (VALUES
-            ('test3@example.com',       '일상'), ('test3@example.com',       '여행'), ('test3@example.com', '음식'),
-            ('seed.yuna@example.com',   '일상'), ('seed.yuna@example.com',   '카페'),
-            ('seed.yuna@example.com',   '반려동물'), ('seed.yuna@example.com', '운동'),
-            ('seed.dohyun@example.com', '일상'), ('seed.dohyun@example.com', '여행'), ('seed.dohyun@example.com', '취미'),
-            ('seed.sora@example.com',   '일상'), ('seed.sora@example.com',   '음식'), ('seed.sora@example.com', '기록')
-           ) AS c(email, name)
-      JOIN users u ON u.email = c.email AND u.deleted_at IS NULL
+            ('test3',       '일상'), ('test3',       '여행'), ('test3', '음식'),
+            ('seed_yuna',   '일상'), ('seed_yuna',   '카페'),
+            ('seed_yuna',   '반려동물'), ('seed_yuna', '운동'),
+            ('seed_dohyun', '일상'), ('seed_dohyun', '여행'), ('seed_dohyun', '취미'),
+            ('seed_sora',   '일상'), ('seed_sora',   '음식'), ('seed_sora', '기록')
+           ) AS c(login_id, name)
+      JOIN users u ON u.login_id = c.login_id AND u.deleted_at IS NULL
     ON CONFLICT (user_id, name) DO NOTHING;
 
     GET DIAGNOSTICS made = ROW_COUNT;
@@ -167,28 +210,28 @@ BEGIN
     SELECT f1.user_id, f2.user_id
       FROM (VALUES
             -- 맞팔 2쌍
-            ('test3@example.com',        'seed.yuna@example.com'),
-            ('seed.yuna@example.com',    'test3@example.com'),
-            ('test3@example.com',        'seed.dohyun@example.com'),
-            ('seed.dohyun@example.com',  'test3@example.com'),
+            ('test3',        'seed_yuna'),
+            ('seed_yuna',    'test3'),
+            ('test3',        'seed_dohyun'),
+            ('seed_dohyun',  'test3'),
             -- 단방향
-            ('seed.yuna@example.com',    'seed.dohyun@example.com'),
-            ('seed.dohyun@example.com',  'seed.sora@example.com'),
-            ('seed.sora@example.com',    'test3@example.com'),
-            ('seed.sora@example.com',    'seed.yuna@example.com'),
+            ('seed_yuna',    'seed_dohyun'),
+            ('seed_dohyun',  'seed_sora'),
+            ('seed_sora',    'test3'),
+            ('seed_sora',    'seed_yuna'),
             -- 구경꾼
-            ('seed.reader1@example.com', 'test3@example.com'),
-            ('seed.reader2@example.com', 'test3@example.com'),
-            ('seed.reader6@example.com', 'test3@example.com'),
-            ('seed.reader1@example.com', 'seed.yuna@example.com'),
-            ('seed.reader4@example.com', 'seed.yuna@example.com'),
-            ('seed.reader2@example.com', 'seed.dohyun@example.com'),
-            ('seed.reader5@example.com', 'seed.dohyun@example.com'),
-            ('seed.reader3@example.com', 'seed.sora@example.com'),
-            ('seed.reader6@example.com', 'seed.sora@example.com')
+            ('seed_reader1', 'test3'),
+            ('seed_reader2', 'test3'),
+            ('seed_reader6', 'test3'),
+            ('seed_reader1', 'seed_yuna'),
+            ('seed_reader4', 'seed_yuna'),
+            ('seed_reader2', 'seed_dohyun'),
+            ('seed_reader5', 'seed_dohyun'),
+            ('seed_reader3', 'seed_sora'),
+            ('seed_reader6', 'seed_sora')
            ) AS f(follower, following)
-      JOIN users f1 ON f1.email = f.follower  AND f1.deleted_at IS NULL
-      JOIN users f2 ON f2.email = f.following AND f2.deleted_at IS NULL
+      JOIN users f1 ON f1.login_id = f.follower  AND f1.deleted_at IS NULL
+      JOIN users f2 ON f2.login_id = f.following AND f2.deleted_at IS NULL
     ON CONFLICT (follower_id, following_id) DO NOTHING;
 
     GET DIAGNOSTICS made = ROW_COUNT;
@@ -219,52 +262,52 @@ DECLARE
 BEGIN
     FOR d IN
         SELECT * FROM (VALUES
-            ('dd-s-01', '봄볕 드는 창가', 'seed.yuna@example.com', NULL,
+            ('dd-s-01', '봄볕 드는 창가', 'seed_yuna', NULL,
              '오후 두 시쯤 창가에 빛이 길게 들어왔다. 커튼 그림자가 바닥에 줄무늬를 만드는 걸 그대로 옮겨봤다. 노란색을 너무 많이 써서 다시 덜어냈다.',
              'PUBLIC', '일상', 2),
-            ('dd-s-02', '라떼 아트 첫 성공', 'seed.yuna@example.com', 'seed.dohyun@example.com',
+            ('dd-s-02', '라떼 아트 첫 성공', 'seed_yuna', 'seed_dohyun',
              '열 번쯤 망하고 나서야 하트 비슷한 게 나왔다. 사진부터 찍고 마시느라 다 식었지만 기분은 좋았다.',
              'PUBLIC', '카페', 5),
-            ('dd-s-03', '창밖 고양이 관찰일지', 'seed.yuna@example.com', NULL,
+            ('dd-s-03', '창밖 고양이 관찰일지', 'seed_yuna', NULL,
              '옆집 고양이가 담벼락에 앉아 한 시간을 안 움직였다. 꼬리 끝만 가끔 튕기듯 움직이는데 그게 제일 그리기 어려웠다.',
              'FOLLOWERS_ONLY', '반려동물', 9),
-            ('dd-s-04', '오늘도 스쿼트 100개', 'seed.yuna@example.com', NULL,
+            ('dd-s-04', '오늘도 스쿼트 100개', 'seed_yuna', NULL,
              '운동 기록용 그림. 다리 그리기가 귀찮아서 점점 단순해지고 있다. 그래도 3주째 이어가는 중.',
              'PUBLIC', '운동', 14),
-            ('dd-s-05', '아무한테도 안 보여줄 낙서', 'seed.yuna@example.com', NULL,
+            ('dd-s-05', '아무한테도 안 보여줄 낙서', 'seed_yuna', NULL,
              '망한 그림도 남겨두려고 비공개로 저장. 나중에 보면 이것도 기록이 될 것 같아서.',
              'PRIVATE', NULL, 20),
-            ('dd-s-06', '한강 야경 자전거', 'seed.dohyun@example.com', 'seed.yuna@example.com',
+            ('dd-s-06', '한강 야경 자전거', 'seed_dohyun', 'seed_yuna',
              '밤 열 시에 한강을 달렸다. 반대편 건물 불빛이 물에 번지는 게 예뻐서 멈춰 서서 한참 봤다. 검정 위에 색을 얹는 방식으로 그렸다.',
              'PUBLIC', '취미', 1),
-            ('dd-s-07', '강릉 바다 스케치', 'seed.dohyun@example.com', NULL,
+            ('dd-s-07', '강릉 바다 스케치', 'seed_dohyun', NULL,
              '기차 타고 두 시간. 도착하자마자 바다부터 봤다. 파도 선을 몇 번이나 지웠는지 모르겠다.',
              'PUBLIC', '여행', 7),
-            ('dd-s-08', '퇴근길 골목', 'seed.dohyun@example.com', NULL,
+            ('dd-s-08', '퇴근길 골목', 'seed_dohyun', NULL,
              '집 가는 길에 늘 지나는 골목인데 오늘따라 조명이 달라 보였다. 팔로워한테만 보여주는 소소한 기록.',
              'FOLLOWERS_ONLY', NULL, 12),
-            ('dd-s-09', '야식 떡볶이 기록', 'seed.sora@example.com', NULL,
+            ('dd-s-09', '야식 떡볶이 기록', 'seed_sora', NULL,
              '밤 열한 시에 떡볶이를 시켰다. 국물 색을 내려다 색을 너무 겹쳐 써서 탁해졌다. 다음엔 얇게 여러 번 칠해봐야지.',
              'PUBLIC', '음식', 3),
-            ('dd-s-10', '셋이 같이 그린 여름', 'seed.sora@example.com', 'test3@example.com,seed.yuna@example.com',
+            ('dd-s-10', '셋이 같이 그린 여름', 'seed_sora', 'test3,seed_yuna',
              '한 명은 하늘, 한 명은 나무, 한 명은 사람을 맡았다. 스타일이 다 다른데 이상하게 잘 어울렸다.',
              'PUBLIC', '기록', 4),
-            ('dd-s-11', '혼자 먹은 생일 케이크', 'seed.sora@example.com', NULL,
+            ('dd-s-11', '혼자 먹은 생일 케이크', 'seed_sora', NULL,
              '조각 케이크 하나에 초 하나 꽂았다. 비공개로 남겨두는 기록.',
              'PRIVATE', '일상', 17),
-            ('dd-s-12', '새벽 네 시의 편의점', 'test3@example.com', NULL,
+            ('dd-s-12', '새벽 네 시의 편의점', 'test3', NULL,
              '잠이 안 와서 나갔다가 편의점 불빛만 그리고 왔다. 형광등 흰색을 종이에 어떻게 내야 할지 아직 모르겠다.',
              'PUBLIC', '일상', 6),
-            ('dd-s-13', '제주 돌담길', 'test3@example.com', 'seed.dohyun@example.com',
+            ('dd-s-13', '제주 돌담길', 'test3', 'seed_dohyun',
              '돌 하나하나 다르게 그리려다 손목이 아팠다. 결국 절반은 대충 넘겼는데 멀리서 보니 티가 안 난다.',
              'PUBLIC', '여행', 10),
-            ('dd-s-14', '비 오는 날의 국물', 'test3@example.com', NULL,
+            ('dd-s-14', '비 오는 날의 국물', 'test3', NULL,
              '비 오는 날엔 뜨거운 국물. 김이 올라오는 걸 그리려고 흰색을 남겨뒀는데 생각보다 잘 나왔다.',
              'FOLLOWERS_ONLY', '음식', 15),
-            ('dd-s-15', '아직 정리 못 한 일기', 'test3@example.com', NULL,
+            ('dd-s-15', '아직 정리 못 한 일기', 'test3', NULL,
              '쓰다 만 글이랑 밑그림만 있는 상태로 저장해뒀다. 공개할 생각은 아직 없다.',
              'PRIVATE', NULL, 25)
-        ) AS t(slug, title, owner_email, mate_emails, content, visibility, category, days_ago)
+        ) AS t(slug, title, owner_login, mate_logins, content, visibility, category, days_ago)
     LOOP
         img := 'https://picsum.photos/seed/' || d.slug || '/800/600';
 
@@ -272,9 +315,9 @@ BEGIN
             CONTINUE;
         END IF;
 
-        SELECT user_id INTO owner FROM users WHERE email = d.owner_email AND deleted_at IS NULL;
+        SELECT user_id INTO owner FROM users WHERE login_id = d.owner_login AND deleted_at IS NULL;
         IF owner IS NULL THEN
-            RAISE EXCEPTION '작성자 %를 찾을 수 없습니다.', d.owner_email;
+            RAISE EXCEPTION '작성자 %를 찾을 수 없습니다.', d.owner_login;
         END IF;
 
         cat := NULL;
@@ -293,11 +336,11 @@ BEGIN
         INSERT INTO room_members (room_id, user_id, joined_at)
         VALUES (room, owner, now() - (d.days_ago || ' days')::interval);
 
-        IF d.mate_emails IS NOT NULL THEN
+        IF d.mate_logins IS NOT NULL THEN
             FOR mate IN
                 SELECT u.user_id
-                  FROM unnest(string_to_array(d.mate_emails, ',')) WITH ORDINALITY AS e(email, ord)
-                  JOIN users u ON u.email = e.email AND u.deleted_at IS NULL
+                  FROM unnest(string_to_array(d.mate_logins, ',')) WITH ORDINALITY AS e(login_id, ord)
+                  JOIN users u ON u.login_id = e.login_id AND u.deleted_at IS NULL
                  ORDER BY e.ord
             LOOP
                 INSERT INTO room_members (room_id, user_id, joined_at)
@@ -367,23 +410,23 @@ BEGIN
     INSERT INTO likes (diary_id, user_id, created_at)
     SELECT d.diary_id, u.user_id, d.created_at + (x.ord * interval '2 hours')
       FROM (VALUES
-            ('dd-s-01', 'test3@example.com,seed.dohyun@example.com,seed.sora@example.com,seed.reader1@example.com,seed.reader2@example.com,seed.reader3@example.com,seed.reader4@example.com,seed.reader5@example.com'),
-            ('dd-s-02', 'test3@example.com,seed.sora@example.com,seed.reader1@example.com,seed.reader2@example.com,seed.reader6@example.com'),
-            ('dd-s-03', 'test3@example.com,seed.sora@example.com'),
-            ('dd-s-04', 'seed.reader1@example.com,seed.reader4@example.com'),
-            ('dd-s-06', 'test3@example.com,seed.sora@example.com,seed.reader1@example.com,seed.reader2@example.com,seed.reader5@example.com,seed.reader6@example.com'),
-            ('dd-s-07', 'test3@example.com,seed.reader2@example.com,seed.reader5@example.com'),
-            ('dd-s-08', 'test3@example.com,seed.yuna@example.com'),
-            ('dd-s-09', 'test3@example.com,seed.yuna@example.com,seed.dohyun@example.com,seed.reader3@example.com,seed.reader6@example.com'),
-            ('dd-s-10', 'seed.dohyun@example.com,seed.reader1@example.com,seed.reader2@example.com,seed.reader3@example.com,seed.reader4@example.com,seed.reader5@example.com,seed.reader6@example.com'),
-            ('dd-s-12', 'seed.yuna@example.com,seed.dohyun@example.com,seed.reader1@example.com,seed.reader5@example.com'),
-            ('dd-s-13', 'seed.yuna@example.com,seed.sora@example.com,seed.reader2@example.com,seed.reader3@example.com,seed.reader4@example.com,seed.reader6@example.com'),
-            ('dd-s-14', 'seed.yuna@example.com,seed.dohyun@example.com,seed.sora@example.com')
+            ('dd-s-01', 'test3,seed_dohyun,seed_sora,seed_reader1,seed_reader2,seed_reader3,seed_reader4,seed_reader5'),
+            ('dd-s-02', 'test3,seed_sora,seed_reader1,seed_reader2,seed_reader6'),
+            ('dd-s-03', 'test3,seed_sora'),
+            ('dd-s-04', 'seed_reader1,seed_reader4'),
+            ('dd-s-06', 'test3,seed_sora,seed_reader1,seed_reader2,seed_reader5,seed_reader6'),
+            ('dd-s-07', 'test3,seed_reader2,seed_reader5'),
+            ('dd-s-08', 'test3,seed_yuna'),
+            ('dd-s-09', 'test3,seed_yuna,seed_dohyun,seed_reader3,seed_reader6'),
+            ('dd-s-10', 'seed_dohyun,seed_reader1,seed_reader2,seed_reader3,seed_reader4,seed_reader5,seed_reader6'),
+            ('dd-s-12', 'seed_yuna,seed_dohyun,seed_reader1,seed_reader5'),
+            ('dd-s-13', 'seed_yuna,seed_sora,seed_reader2,seed_reader3,seed_reader4,seed_reader6'),
+            ('dd-s-14', 'seed_yuna,seed_dohyun,seed_sora')
             -- dd-s-05 / 11 / 15 는 PRIVATE 이라 좋아요 0건.
-           ) AS l(slug, emails)
-      CROSS JOIN LATERAL unnest(string_to_array(l.emails, ',')) WITH ORDINALITY AS x(email, ord)
+           ) AS l(slug, logins)
+      CROSS JOIN LATERAL unnest(string_to_array(l.logins, ',')) WITH ORDINALITY AS x(login_id, ord)
       JOIN diaries d ON d.final_img_url = 'https://picsum.photos/seed/' || l.slug || '/800/600'
-      JOIN users u ON u.email = x.email AND u.deleted_at IS NULL
+      JOIN users u ON u.login_id = x.login_id AND u.deleted_at IS NULL
     ON CONFLICT (diary_id, user_id) DO NOTHING;
 
     GET DIAGNOSTICS made = ROW_COUNT;
@@ -399,37 +442,37 @@ BEGIN
            d.created_at + (c.ord * interval '5 hours'),
            d.created_at + (c.ord * interval '5 hours')
       FROM (VALUES
-            ('dd-s-01', 'test3@example.com',        '창가 빛 표현이 진짜 좋네요. 이 시간대 색이 딱 이래요.', 1),
-            ('dd-s-01', 'seed.dohyun@example.com',  '노란색 어떻게 낸 거예요? 색연필인가요?',                2),
-            ('dd-s-01', 'seed.reader1@example.com', '아침에 보기 딱 좋은 그림이에요.',                       3),
-            ('dd-s-01', 'seed.reader3@example.com', '저도 이런 창가 있는 집에 살고 싶다...',                 4),
-            ('dd-s-02', 'test3@example.com',        '열 번 만에 성공이면 훌륭한데요. 축하해요.',             1),
-            ('dd-s-02', 'seed.reader2@example.com', '하트 모양 귀엽게 잘 나왔네요ㅋㅋ',                      2),
-            ('dd-s-03', 'test3@example.com',        '고양이 표정이 살아있어요. 꼬리 선이 특히 좋네요.',      1),
-            ('dd-s-06', 'test3@example.com',        '검정 위에 색 얹은 거 효과 확실하네요.',                 1),
-            ('dd-s-06', 'seed.yuna@example.com',    '같이 그려서 즐거웠어요. 다음에 또 해요.',               2),
-            ('dd-s-06', 'seed.reader5@example.com', '한강 자주 가는데 딱 이 느낌이에요.',                    3),
-            ('dd-s-06', 'seed.sora@example.com',    '밤에 자전거 타는 거 부럽다...',                         4),
-            ('dd-s-06', 'seed.reader1@example.com', '구도가 시원해서 좋아요.',                               5),
-            ('dd-s-07', 'seed.reader2@example.com', '강릉 또 가고 싶어지는 그림이네요.',                     1),
-            ('dd-s-08', 'test3@example.com',        '이 골목 어디예요? 분위기 좋다.',                        1),
-            ('dd-s-08', 'seed.yuna@example.com',    '퇴근길에 이런 거 보이면 하루가 좀 풀리죠.',             2),
-            ('dd-s-09', 'seed.yuna@example.com',    '떡볶이는 진리입니다.',                                  1),
-            ('dd-s-09', 'seed.dohyun@example.com',  '야식 그림은 반칙이에요. 배고파요.',                     2),
-            ('dd-s-09', 'seed.reader6@example.com', '국물색 탁해진 게 오히려 진해 보여요.',                  3),
-            ('dd-s-10', 'test3@example.com',        '셋이 그리니까 확실히 다르네요. 재밌었어요.',            1),
-            ('dd-s-10', 'seed.reader4@example.com', '여름 색이 그대로 담겼어요.',                            2),
-            ('dd-s-12', 'seed.yuna@example.com',    '형광등 흰색 그거 어렵죠. 저도 매번 실패해요.',          1),
-            ('dd-s-12', 'seed.reader5@example.com', '새벽 감성 제대로네요ㅠㅠ',                               2),
-            ('dd-s-13', 'seed.dohyun@example.com',  '돌담 질감 살린 거 대단합니다.',                          1),
-            ('dd-s-13', 'seed.sora@example.com',    '제주 가고 싶어졌어요.',                                 2),
-            ('dd-s-13', 'seed.reader3@example.com', '다음엔 저도 껴주세요!',                                 3),
-            ('dd-s-14', 'seed.yuna@example.com',    '비 오는 날엔 역시 국물이죠.',                            1),
-            ('dd-s-14', 'seed.sora@example.com',    '이 그림 보고 라면 끓였습니다.',                          2)
+            ('dd-s-01', 'test3',        '창가 빛 표현이 진짜 좋네요. 이 시간대 색이 딱 이래요.', 1),
+            ('dd-s-01', 'seed_dohyun',  '노란색 어떻게 낸 거예요? 색연필인가요?',                2),
+            ('dd-s-01', 'seed_reader1', '아침에 보기 딱 좋은 그림이에요.',                       3),
+            ('dd-s-01', 'seed_reader3', '저도 이런 창가 있는 집에 살고 싶다...',                 4),
+            ('dd-s-02', 'test3',        '열 번 만에 성공이면 훌륭한데요. 축하해요.',             1),
+            ('dd-s-02', 'seed_reader2', '하트 모양 귀엽게 잘 나왔네요ㅋㅋ',                      2),
+            ('dd-s-03', 'test3',        '고양이 표정이 살아있어요. 꼬리 선이 특히 좋네요.',      1),
+            ('dd-s-06', 'test3',        '검정 위에 색 얹은 거 효과 확실하네요.',                 1),
+            ('dd-s-06', 'seed_yuna',    '같이 그려서 즐거웠어요. 다음에 또 해요.',               2),
+            ('dd-s-06', 'seed_reader5', '한강 자주 가는데 딱 이 느낌이에요.',                    3),
+            ('dd-s-06', 'seed_sora',    '밤에 자전거 타는 거 부럽다...',                         4),
+            ('dd-s-06', 'seed_reader1', '구도가 시원해서 좋아요.',                               5),
+            ('dd-s-07', 'seed_reader2', '강릉 또 가고 싶어지는 그림이네요.',                     1),
+            ('dd-s-08', 'test3',        '이 골목 어디예요? 분위기 좋다.',                        1),
+            ('dd-s-08', 'seed_yuna',    '퇴근길에 이런 거 보이면 하루가 좀 풀리죠.',             2),
+            ('dd-s-09', 'seed_yuna',    '떡볶이는 진리입니다.',                                  1),
+            ('dd-s-09', 'seed_dohyun',  '야식 그림은 반칙이에요. 배고파요.',                     2),
+            ('dd-s-09', 'seed_reader6', '국물색 탁해진 게 오히려 진해 보여요.',                  3),
+            ('dd-s-10', 'test3',        '셋이 그리니까 확실히 다르네요. 재밌었어요.',            1),
+            ('dd-s-10', 'seed_reader4', '여름 색이 그대로 담겼어요.',                            2),
+            ('dd-s-12', 'seed_yuna',    '형광등 흰색 그거 어렵죠. 저도 매번 실패해요.',          1),
+            ('dd-s-12', 'seed_reader5', '새벽 감성 제대로네요ㅠㅠ',                               2),
+            ('dd-s-13', 'seed_dohyun',  '돌담 질감 살린 거 대단합니다.',                          1),
+            ('dd-s-13', 'seed_sora',    '제주 가고 싶어졌어요.',                                 2),
+            ('dd-s-13', 'seed_reader3', '다음엔 저도 껴주세요!',                                 3),
+            ('dd-s-14', 'seed_yuna',    '비 오는 날엔 역시 국물이죠.',                            1),
+            ('dd-s-14', 'seed_sora',    '이 그림 보고 라면 끓였습니다.',                          2)
             -- dd-s-04 / 05 / 11 / 15 는 댓글 0건.
-           ) AS c(slug, email, content, ord)
+           ) AS c(slug, login_id, content, ord)
       JOIN diaries d ON d.final_img_url = 'https://picsum.photos/seed/' || c.slug || '/800/600'
-      JOIN users u ON u.email = c.email AND u.deleted_at IS NULL
+      JOIN users u ON u.login_id = c.login_id AND u.deleted_at IS NULL
      WHERE NOT EXISTS (
             SELECT 1 FROM comments cm
              WHERE cm.diary_id = d.diary_id AND cm.user_id = u.user_id AND cm.content = c.content);
@@ -499,19 +542,19 @@ DECLARE
 BEGIN
     FOR w IN
         SELECT * FROM (VALUES
-            ('같이 그리는 가을 산책', 'seed.yuna@example.com', 'seed.dohyun@example.com', 'seed.sora@example.com',
+            ('같이 그리는 가을 산책', 'seed_yuna', 'seed_dohyun', 'seed_sora',
              '아직 밑그림만 그렸다. 나뭇잎 색은 내일 같이 채우기로 했다.',
              '{"version":1,"width":1080,"height":1080,"strokes":[{"tool":"pencil","color":"#3b3b3b","size":3,"points":[[120,540],[180,520],[240,530],[300,505]]},{"tool":"pencil","color":"#3b3b3b","size":3,"points":[[300,505],[360,540],[420,560]]},{"tool":"brush","color":"#c9a227","size":18,"points":[[640,300],[700,340],[760,320]]}]}',
              2),
-            ('미완성 야식 지도', 'test3@example.com', 'seed.sora@example.com', 'seed.dohyun@example.com',
+            ('미완성 야식 지도', 'test3', 'seed_sora', 'seed_dohyun',
              '떡볶이랑 치킨까지는 그렸는데 배경이 통째로 비어 있다.',
              '{"version":1,"width":1080,"height":1080,"strokes":[{"tool":"brush","color":"#d94f30","size":24,"points":[[300,400],[340,430],[380,410],[420,445]]},{"tool":"pencil","color":"#5a3b1a","size":4,"points":[[600,600],[660,620],[720,600],[780,640]]}]}',
              1)
-        ) AS t(title, owner_email, mate_email, invitee_email, content, canvas, days_ago)
+        ) AS t(title, owner_login, mate_login, invitee_login, content, canvas, days_ago)
     LOOP
-        SELECT user_id INTO owner   FROM users WHERE email = w.owner_email   AND deleted_at IS NULL;
-        SELECT user_id INTO mate    FROM users WHERE email = w.mate_email    AND deleted_at IS NULL;
-        SELECT user_id INTO invitee FROM users WHERE email = w.invitee_email AND deleted_at IS NULL;
+        SELECT user_id INTO owner   FROM users WHERE login_id = w.owner_login   AND deleted_at IS NULL;
+        SELECT user_id INTO mate    FROM users WHERE login_id = w.mate_login    AND deleted_at IS NULL;
+        SELECT user_id INTO invitee FROM users WHERE login_id = w.invitee_login AND deleted_at IS NULL;
 
         SELECT room_id INTO room
           FROM drawing_rooms
@@ -577,8 +620,8 @@ BEGIN
                row_number() OVER (PARTITION BY o.owner_id ORDER BY o.diary_id) - 1 AS seq
           FROM owned o
           JOIN users u ON u.user_id = o.owner_id AND u.deleted_at IS NULL
-         WHERE u.email IN ('test3@example.com', 'seed.yuna@example.com',
-                           'seed.dohyun@example.com', 'seed.sora@example.com')
+         WHERE u.login_id IN ('test3', 'seed_yuna',
+                           'seed_dohyun', 'seed_sora')
     ),
     picked AS (
         SELECT t.diary_id,
@@ -634,9 +677,9 @@ BEGIN
                        + (row_number() OVER (ORDER BY f.follow_id)) * interval '30 hours' AS happened_at
               FROM follows f
               JOIN users a ON a.user_id = f.follower_id
-                          AND (a.email = 'test3@example.com' OR a.email LIKE 'seed.%@example.com')
+                          AND a.login_id IN (SELECT login_id FROM seed_accounts)
               JOIN users b ON b.user_id = f.following_id
-                          AND (b.email = 'test3@example.com' OR b.email LIKE 'seed.%@example.com')
+                          AND b.login_id IN (SELECT login_id FROM seed_accounts)
 
             UNION ALL
 

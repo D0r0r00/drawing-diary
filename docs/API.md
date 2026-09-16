@@ -1,6 +1,23 @@
 # API 명세서
 
-> ### 최근 변경 (AI feedback 노출 + 태그)
+> ### 최근 변경 (로그인을 이메일 → 아이디로)
+>
+> ⚠️ **Breaking change.** 가입·로그인 요청 바디가 바뀐다.
+>
+> | 변경 | 내용 |
+> |---|---|
+> | 변경 | `POST /api/auth/signup` 바디: `{ email, password, nickname }` → **`{ loginId, password, nickname, email? }`** |
+> | 변경 | `POST /api/auth/signup` 응답: `{ userId, email, nickname }` → **`{ userId, loginId, nickname }`** |
+> | 변경 | `POST /api/auth/login` 바디: `{ email, password }` → **`{ loginId, password }`** (응답은 그대로) |
+> | 추가 | `GET /api/users/me` 응답에 **`loginId`**. `email`은 그대로 있지만 **null일 수 있다** |
+> | 완화 | `email`은 선택 입력, **중복 허용**. 로그인에 쓰지 않는 연락처 |
+> | 추가 | accessToken에 `loginId` 클레임 (`email` 클레임은 값이 있을 때만) |
+>
+> 기존 계정은 이메일의 `@` 앞부분이 아이디가 된다(규칙에 안 맞는 문자는 `_`로). 시드 계정은
+> `test3`, `seed_yuna` … — [infra/SEED-ACCOUNTS.md](../infra/SEED-ACCOUNTS.md) 참고.
+>
+> <details>
+> <summary>이전 변경 (AI feedback 노출 + 태그)</summary>
 >
 > | 변경 | 내용 |
 > |---|---|
@@ -104,7 +121,8 @@
 > </details>
 >
 > </details>
-
+>
+> </details>
 ## 인증
 로그인과 회원가입, 로그아웃, 토큰 재발급을 제외한 백엔드 API는 Header에 JWT(accessToken) 포함 필요
 Authorization: Bearer {accessToken}
@@ -147,14 +165,47 @@ API 호출 → 401 + code=TOKEN_EXPIRED
 ## Auth
 ### 회원가입
 - POST /api/auth/signup
-- Body: { email, password, nickname }
-- Response **201**: { userId, email, nickname }
+- Body: { loginId, password, nickname, email }
+  - `loginId` 필수 — [아이디 규칙](#아이디-규칙)
+  - `password` 필수, 8자 이상
+  - `nickname` 필수, 30자 이하
+  - `email` **선택**. 안 보내도(필드 생략·`null`·빈 문자열) 가입된다. 보냈으면 형식만 검사하고, **다른 계정과 겹쳐도 된다**
+- Response **201**: { userId, loginId, nickname }
   - 201이다(200이 아님). 자원을 새로 만드는 경로라 댓글 작성·방 생성·카테고리 생성과 같은 규칙.
+  - `loginId`는 **소문자로 바뀐 값**이 내려온다. `Test_01`로 가입하면 `test_01`.
+```json
+// 요청
+{ "loginId": "Minseo_01", "password": "password123", "nickname": "민서", "email": "minseo@example.com" }
+
+// 응답 201
+{ "userId": 82, "loginId": "minseo_01", "nickname": "민서" }
+```
+- 400: 아이디 규칙 위반 / 필수값 누락 / 비밀번호 8자 미만 / 이메일 형식 오류 — 메시지로 사유가 구분된다
+- 409: 이미 쓰이는 아이디(**대소문자 무시**, 탈퇴한 계정의 아이디 포함) / 이미 쓰이는 닉네임
+
+#### 아이디 규칙
+| 규칙 | 위반 시 400 메시지 |
+|---|---|
+| 영문·숫자·밑줄(`_`)만 | `아이디는 영문, 숫자, 밑줄(_)만 쓸 수 있습니다. 쓸 수 없는 문자: '-', '!'` |
+| 첫 글자는 영문 | `아이디의 첫 글자는 영문이어야 합니다.` |
+| 4~20자 | `아이디는 4~20자여야 합니다. (현재 3자)` |
+| 비어 있으면 안 됨 | `아이디를 입력해주세요.` |
+
+- **대소문자를 구분하지 않는다.** 입력은 대문자를 섞어도 되지만 저장은 소문자로 된다. 그래서
+  `test`가 있으면 `Test`로 가입할 수 없고(409), `test`로 가입한 계정은 `TEST`로도 로그인된다.
+- 규칙을 여러 개 어기면 **하나만** 알려준다. 순서는 쓸 수 없는 문자 → 첫 글자 → 길이.
+  (`한글아이디`에 "첫 글자는 영문이어야" 같은 엉뚱한 안내가 나가지 않게 문자를 먼저 본다)
+- 앞뒤 공백을 잘라주지 않는다. `" test"`는 공백 때문에 400이다.
+- **탈퇴한 계정의 아이디는 다시 쓸 수 없다**(409).
 
 ### 로그인
 - POST /api/auth/login
-- Body: { email, password }
+- Body: { loginId, password }
 - Response: { accessToken, refreshToken, userId }
+- `loginId`는 대소문자 무관
+- 401 `{ "message": "아이디 또는 비밀번호가 올바르지 않습니다." }` — 없는 아이디, 틀린 비밀번호, 탈퇴한 계정 모두 같다.
+  아이디 형식이 규칙에 안 맞아도 400이 아니라 401이다(어떤 아이디가 존재할 수 있는지조차 드러내지 않으려고).
+- 400: `loginId`나 `password`가 비었을 때. 예전 방식대로 `{ email, password }`를 보내면 `아이디를 입력해주세요.`로 400
 - ⚠️ Breaking change: 응답에 `refreshToken` 필드가 추가됨. 로그인 시 accessToken과 함께 반드시 저장해둘 것 (로그아웃 시 필요).
 
 ### 토큰 재발급
@@ -184,10 +235,11 @@ API 호출 → 401 + code=TOKEN_EXPIRED
 ## User
 ### 내 정보 조회
 - GET /api/users/me
-- Response: { id, email, nickname, profileImageUrl, bio, followerCount, followingCount }
+- Response: { id, loginId, email, nickname, profileImageUrl, bio, followerCount, followingCount }
 ```json
 {
   "id": 82,
+  "loginId": "minseo_01",
   "email": "user@example.com",
   "nickname": "그림쟁이",
   "profileImageUrl": "https://picsum.photos/seed/av1/200",
@@ -196,6 +248,8 @@ API 호출 → 401 + code=TOKEN_EXPIRED
   "followingCount": 5
 }
 ```
+- `email`은 가입 때 안 넣었으면 `null`. 연락처일 뿐이라 **같은 이메일을 쓰는 계정이 여럿일 수 있다.**
+- `loginId`는 소문자다. 현재 아이디를 바꾸는 API는 없다.
 - `bio`는 아직 설정하지 않았으면 `null`.
 - `followerCount`/`followingCount`는 저장된 값이 아니라 요청 시점에 집계한 값이다. 탈퇴한 계정은 카운트에서 빠지므로, 이 숫자는 `/api/users/{userId}/followers`·`/followings` 목록의 길이와 항상 일치한다.
 

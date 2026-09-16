@@ -5,7 +5,7 @@ import com.drawingdiary.backend.domain.ai.exception.AllGuidesFailedException;
 import com.drawingdiary.backend.domain.ai.exception.FinalImageMissingException;
 import com.drawingdiary.backend.domain.aiscore.exception.AiScoreNotFoundException;
 import com.drawingdiary.backend.domain.auth.exception.AuthTokenException;
-import com.drawingdiary.backend.domain.auth.exception.DuplicateEmailException;
+import com.drawingdiary.backend.domain.auth.exception.DuplicateLoginIdException;
 import com.drawingdiary.backend.domain.auth.exception.InvalidCredentialsException;
 import com.drawingdiary.backend.domain.category.exception.CategoryNotFoundException;
 import com.drawingdiary.backend.domain.category.exception.DuplicateCategoryNameException;
@@ -58,8 +58,8 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(AuthErrorResponse.of(e.getErrorCode()));
     }
 
-    @ExceptionHandler(DuplicateEmailException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateEmail(DuplicateEmailException e) {
+    @ExceptionHandler(DuplicateLoginIdException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateLoginId(DuplicateLoginIdException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(e.getMessage()));
     }
 

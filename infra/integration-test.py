@@ -10,8 +10,11 @@
     python infra/integration-test.py --base https://drawing-diary-production.up.railway.app
 
 성질:
-  * 매 실행마다 integ.{타임스탬프}@example.com 계정을 새로 만들어 반복 실행이 가능하다.
-    integ. 로 시작하는 계정과 거기 딸린 데이터는 <b>전부 이 스크립트가 만든 것</b>이다.
+  * 매 실행마다 아이디 integ_{타임스탬프}_a·b·c 계정을 새로 만들어 반복 실행이 가능하다.
+    이메일도 integ.{타임스탬프}.a@example.com 형태로 함께 넣는다.
+  * 정리 대상은 아이디와 이메일이 <b>둘 다</b> 이 스크립트의 패턴일 때만이다. 이메일은 이제
+    중복을 허용하는 선택 입력이라 누구나 같은 값을 넣을 수 있고, 아이디 역시 가입으로 선점할
+    수 있다. 한쪽만 보고 실제 DELETE를 하면 남의 데이터를 지울 수 있다.
   * 실패해도 멈추지 않는다. 뒤 단계가 앞 단계의 결과를 못 받아 진행 불가일 때만 건너뛴다.
   * <b>전부 PASS일 때만</b> 남긴 데이터를 DB에서 지운다(탈퇴 API가 아니라 실제 DELETE).
     하나라도 실패하면 원인을 DB에서 들여다볼 수 있도록 그대로 둔다.
@@ -183,6 +186,10 @@ def run():
     A_EMAIL = f"integ.{stamp}.a@example.com"
     B_EMAIL = f"integ.{stamp}.b@example.com"
     C_EMAIL = f"integ.{stamp}.c@example.com"
+    # 아이디 규칙: 영문 소문자로 시작, 소문자·숫자·_ 만, 4~20자. integ_ + 10자리 + _a = 18자
+    A_ID = f"integ_{stamp}_a"
+    B_ID = f"integ_{stamp}_b"
+    C_ID = f"integ_{stamp}_c"
     PW = "password123"
     TAG = f"integ-{stamp}"
     S = {}   # 단계 간에 넘기는 값
@@ -191,18 +198,20 @@ def run():
     step("1단계: 가입과 로그인")
     # C는 방에도 들어오지 않고 아무도 팔로우하지 않는 제3자다. 9단계에서 쓴다 —
     # B는 방 멤버라 발행 시점에 협업자로 복사되므로 공개 범위 판정을 통과해버린다.
-    for key, email, nick in [("A", A_EMAIL, f"integA{stamp}"),
-                             ("B", B_EMAIL, f"integB{stamp}"),
-                             ("C", C_EMAIL, f"integC{stamp}")]:
-        st, r = call("POST", "/api/auth/signup", body={"email": email, "password": PW, "nickname": nick})
+    for key, login_id, email, nick in [("A", A_ID, A_EMAIL, f"integA{stamp}"),
+                                       ("B", B_ID, B_EMAIL, f"integB{stamp}"),
+                                       ("C", C_ID, C_EMAIL, f"integC{stamp}")]:
+        st, r = call("POST", "/api/auth/signup",
+                     body={"loginId": login_id, "email": email, "password": PW, "nickname": nick})
         # 문서에는 상태 코드가 없지만 실제로는 201이다. 둘 다 성공으로 본다.
-        ok = check(f"{key} 회원가입", st in (200, 201) and isinstance(r, dict) and r.get("email") == email,
-                   f"HTTP {st} {js(r)}", request={"email": email, "nickname": nick}, response=r)
+        ok = check(f"{key} 회원가입", st in (200, 201) and isinstance(r, dict) and r.get("loginId") == login_id,
+                   f"HTTP {st} {js(r)}", request={"loginId": login_id, "email": email, "nickname": nick},
+                   response=r)
         if key == "A" and st == 201:
             note("POST /api/auth/signup 은 200이 아니라 **201**을 반환한다. docs/API.md에 상태 코드가 적혀 있지 않다.")
         if ok:
-            CREATED["users"].append(email)
-        st, r = call("POST", "/api/auth/login", body={"email": email, "password": PW})
+            CREATED["users"].append(login_id)
+        st, r = call("POST", "/api/auth/login", body={"loginId": login_id, "password": PW})
         if check(f"{key} 로그인 (accessToken·refreshToken)", st == 200 and r.get("accessToken") and r.get("refreshToken"),
                  f"HTTP {st} userId={r.get('userId') if isinstance(r, dict) else '?'}", response=r):
             S[key] = r["accessToken"]
@@ -215,8 +224,18 @@ def run():
         return S, TAG
 
     st, r = call("GET", "/api/users/me", S["A"])
-    check("A /api/users/me — 가입 정보와 일치", st == 200 and r.get("email") == A_EMAIL and r.get("id") == S["A_id"],
+    check("A /api/users/me — 가입 정보와 일치",
+          st == 200 and r.get("loginId") == A_ID and r.get("email") == A_EMAIL and r.get("id") == S["A_id"],
           f"HTTP {st} {js(r)}", response=r)
+
+    # 아이디는 대소문자를 구분하지 않는다(저장은 소문자).
+    st, r = call("POST", "/api/auth/login", body={"loginId": A_ID.upper(), "password": PW})
+    if check("A 대문자 아이디로 로그인", st == 200 and isinstance(r, dict) and r.get("userId") == S["A_id"],
+             f"HTTP {st} userId={r.get('userId') if isinstance(r, dict) else '?'}", response=r):
+        # 다시 로그인하면 refreshToken이 새로 발급되고 이전 것은 무효가 된다(계정당 하나).
+        # 10단계가 재발급을 검사하므로 방금 받은 토큰으로 바꿔 들고 간다.
+        S["A"] = r["accessToken"]
+        S["A_refresh"] = r["refreshToken"]
 
     new_bio = "통합테스트 계정입니다"
     new_img = "https://picsum.photos/seed/integ-a/200/200"
@@ -595,7 +614,7 @@ def run():
     st, r = call("DELETE", "/api/users/me", S["B"])
     check("B 회원 탈퇴", st == 200, f"HTTP {st} {js(r)}", response=r)
 
-    st, r = call("POST", "/api/auth/login", body={"email": B_EMAIL, "password": PW})
+    st, r = call("POST", "/api/auth/login", body={"loginId": B_ID, "password": PW})
     check("탈퇴한 계정으로 로그인 → 401", st == 401, f"HTTP {st} {js(r)}", response=r)
 
     st, r = call("GET", f"/api/users/{S['A_id']}/followers", S["A"])
@@ -630,7 +649,9 @@ def score_formula(relevance, color, like_score):
 CLEANUP_SQL = """
 BEGIN;
 CREATE TEMP TABLE t_users AS
-  SELECT user_id FROM users WHERE email LIKE 'integ.%@example.com';
+  SELECT user_id FROM users
+   WHERE login_id ~ '^integ_[0-9]{10}_[abc]$'
+     AND email LIKE 'integ.%@example.com';
 CREATE TEMP TABLE t_rooms AS
   SELECT room_id FROM drawing_rooms WHERE owner_id IN (SELECT user_id FROM t_users);
 CREATE TEMP TABLE t_diaries AS

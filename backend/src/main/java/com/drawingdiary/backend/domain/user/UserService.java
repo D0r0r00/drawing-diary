@@ -34,6 +34,7 @@ public class UserService {
         User user = getUserOrThrow(userId);
         return new UserResponse(
                 user.getId(),
+                user.getLoginId(),
                 user.getEmail(),
                 user.getNickname(),
                 user.getProfileImageUrl(),
@@ -48,7 +49,7 @@ public class UserService {
      *
      * <p>탈퇴한 계정은 User의 @SQLRestriction 때문에 findById 단계에서 이미 비어 나오므로,
      * "없는 사용자"와 "탈퇴한 사용자"가 여기서 같은 404가 된다. 둘을 구분해 알려주면
-     * 어떤 이메일이 가입했다가 탈퇴했는지가 드러난다.
+     * 어떤 계정이 가입했다가 탈퇴했는지가 드러난다.
      *
      * <p>자기 자신을 조회해도 막지 않는다 — 프론트가 남의 프로필 화면을 그대로 써서 내
      * 프로필을 열 수 있다. 자기 팔로우는 follows의 CHECK 제약으로 애초에 불가능하므로

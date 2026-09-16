@@ -34,11 +34,17 @@ public class JwtTokenProvider {
         this.refreshTokenExpirationMs = refreshTokenExpirationMs;
     }
 
-    public String createAccessToken(Long userId, String email) {
+    /**
+     * loginId 클레임을 새로 싣고, email 클레임도 이전 토큰을 읽던 클라이언트를 위해 남겨둔다.
+     * email은 이제 선택 입력이라 없을 수 있는데, jjwt는 값이 null인 클레임을 아예 넣지 않는다
+     * (키가 빠진다). 서버는 두 클레임 모두 읽지 않고 subject(userId)만 쓴다.
+     */
+    public String createAccessToken(Long userId, String loginId, String email) {
         Date now = new Date();
 
         return Jwts.builder()
                 .subject(String.valueOf(userId))
+                .claim("loginId", loginId)
                 .claim("email", email)
                 .claim(TOKEN_TYPE_CLAIM, ACCESS_TOKEN_TYPE)
                 .issuedAt(now)

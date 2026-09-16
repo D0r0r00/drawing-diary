@@ -2,6 +2,7 @@ package com.drawingdiary.backend.domain.user.dto;
 
 public record UserResponse(
         Long id,
+        String loginId,
         String email,
         String nickname,
         String profileImageUrl,
