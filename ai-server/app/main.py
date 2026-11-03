@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from app.routers.score import router as score_router
 from app.routers.guide import router as guide_router
+from app.routers.shorts import router as shorts_router
 
 
 app = FastAPI(
@@ -17,3 +18,4 @@ def root():
 
 app.include_router(score_router)
 app.include_router(guide_router)
+app.include_router(shorts_router)

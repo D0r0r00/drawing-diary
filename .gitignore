@@ -20,6 +20,8 @@ ai-server/venv/
 ai-server/.venv/
 ai-server/**/__pycache__/
 ai-server/**/*.pyc
+# AI 쇼츠 생성 결과물
+ai-server/outputs/
 
 # IDE
 .idea/
